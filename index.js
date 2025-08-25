@@ -13,6 +13,16 @@ const paymentRoutes = require('./route/payment_route');
 
 const PORT = process.env.PORT || 3000;
 
+// In index.js
+
+// Import the new route
+const uploadRoutes = require('./route/upload_route');
+
+// ... (other route imports)
+
+// Mount the new route
+app.use('/uploads', uploadRoutes);
+
 // An async function to connect to the DB and then start the server
 const startServer = async () => {
   try {
