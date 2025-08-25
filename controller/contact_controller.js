@@ -1,0 +1,37 @@
+const Contact = require('../model/contact_model');
+
+const contactController = {
+  createContact: async (req, res) => {
+    try {
+      const created_by = req.user.id;
+      
+      // The file path will be available in req.file.path
+      const image_url = req.file ? req.file.path : null;
+
+      // The rest of the form data is in req.body
+      const contactData = {
+        ...req.body,
+        details: JSON.parse(req.body.details), // The details object will be a string, so we parse it
+        image_url: image_url, // Add the image path
+        created_by: created_by
+      };
+
+      const newContact = await Contact.create(contactData);
+      res.status(201).json({ success: true, data: newContact });
+    } catch (error) {
+      console.error("Create Contact Error:", error);
+      res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    }
+  },
+  // ... (getAllContacts remains the same)
+  getAllContacts: async (req, res) => {
+    try {
+      const contacts = await Contact.findAll();
+      res.status(200).json({ success: true, data: contacts });
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    }
+  }
+};
+
+module.exports = contactController;
