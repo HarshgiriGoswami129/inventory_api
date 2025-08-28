@@ -10,18 +10,10 @@ const accountRoutes = require('./route/account_route');
 const contactRoutes = require('./route/contact_route');
 const receiptRoutes = require('./route/receipt_route');
 const paymentRoutes = require('./route/payment_route');
+const masterRoutes = require('./route/master_route');
+const inventoryRoutes = require('./route/inventory_route');
 
 const PORT = process.env.PORT || 3000;
-
-// In index.js
-
-// Import the new route
-const uploadRoutes = require('./route/upload_route');
-
-// ... (other route imports)
-
-// Mount the new route
-app.use('/uploads', uploadRoutes);
 
 // An async function to connect to the DB and then start the server
 const startServer = async () => {
@@ -49,4 +41,5 @@ app.use('/accounts', accountRoutes);
 app.use('/contacts', contactRoutes);
 app.use('/receipts', receiptRoutes);
 app.use('/payments', paymentRoutes);
-
+app.use('/master-items', masterRoutes);
+app.use('/inventory-items', inventoryRoutes);
