@@ -30,6 +30,21 @@ const InventoryItem = {
   delete: async (id) => {
     const [result] = await db.query('DELETE FROM inventory_items WHERE id = ?', [id]);
     return result.affectedRows;
-  }
+  },
+  searchByItemCode: async (itemCode) => {
+  const query = `SELECT * FROM inventory_items WHERE item_code LIKE ? ORDER BY id DESC`;
+  const [rows] = await db.query(query, [`%${itemCode}%`]);
+  return rows;
+},
+findAllItemCodes: async () => {
+    const [rows] = await db.query('SELECT DISTINCT item_code FROM inventory_items ORDER BY item_code');
+    return rows;
+},
+searchByExactItemCode: async (itemCode) => {
+  const query = `SELECT description, kg_dz FROM master_items WHERE item_code = ? LIMIT 1`;
+  const rows = await db.query(query, [itemCode]);
+  return rows[0] || null;
+},
+
 };
 module.exports = InventoryItem;

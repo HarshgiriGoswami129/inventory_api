@@ -11,17 +11,34 @@ const masterController = {
   },
 
   getAllItems: async (req, res) => {
-    try {
-      const items = await MasterItem.findAll();
-      res.status(200).json({ success: true, data: items });
-    } catch (error) {
-      res.status(500).json({ success: false, message: 'Server Error', error: error.message });
-    }
-  },
+  try {
+    // Fetch data from both tables in parallel
+    const [items, cartons] = await Promise.all([
+      MasterItem.findAll(),
+      MasterItem.findAllCorton()
+    ]);
+    
+    // Combine them in the response JSON
+    res.status(200).json({ 
+      success: true, 
+      data: {
+        masterItems: items,
+        cartonInventory: cartons
+      } 
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+  }
+},
 
   updateItem: async (req, res) => {
     try {
-      const affectedRows = await MasterItem.update(req.params.id, req.body);
+      // Get ID from the request body
+      const { id, ...itemData } = req.body;
+      if (!id) {
+        return res.status(400).json({ success: false, message: 'Item ID is required in the body.' });
+      }
+      const affectedRows = await MasterItem.update(id, itemData);
       if (affectedRows === 0) {
         return res.status(404).json({ success: false, message: 'Item not found' });
       }
@@ -33,7 +50,12 @@ const masterController = {
 
   deleteItem: async (req, res) => {
     try {
-      const affectedRows = await MasterItem.delete(req.params.id);
+      // Get ID from the request body
+      const { id } = req.body;
+       if (!id) {
+        return res.status(400).json({ success: false, message: 'Item ID is required in the body.' });
+      }
+      const affectedRows = await MasterItem.delete(id);
       if (affectedRows === 0) {
         return res.status(404).json({ success: false, message: 'Item not found' });
       }
@@ -41,6 +63,14 @@ const masterController = {
     } catch (error) {
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }
-  }
+  },
+  getItemCodes: async (req, res) => {
+    try {
+        const itemCodes = await MasterItem.findAllItemCodes();
+        res.status(200).json({ success: true, data: itemCodes });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    }
+},  
 };
 module.exports = masterController;

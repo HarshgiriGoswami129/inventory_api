@@ -1,18 +1,26 @@
 const express = require('express');
 const router = express.Router();
 const inventoryController = require('../controller/inventory_controller');
-// --- FIX: Corrected path from '../middlewares' to '../middleware' ---
 const authMiddleware = require('../middlewares/auth');
 const checkPermission = require('../middlewares/checkPermission');
 
-// Protect all routes in this file
 router.use(authMiddleware);
 
-// Define the CRUD routes
-// Assuming you have a permission named 'inventory_items'
-router.post('/', checkPermission('inventory_items'), inventoryController.createItem);
-router.get('/', checkPermission('inventory_items'), inventoryController.getAllItems);
-router.patch('/:id', checkPermission('inventory_items'), inventoryController.updateItem);
-router.delete('/:id', checkPermission('inventory_items'), inventoryController.deleteItem);
+const permission = 'inventory_items';
+
+// All routes use POST and do not have ':id' in the URL
+router.post('/', checkPermission(permission), inventoryController.createItem);
+router.post('/getAllInventory', checkPermission(permission), inventoryController.getAllItems);
+router.post('/updateInventory', checkPermission(permission), inventoryController.updateItem);
+router.post('/deleteInventory', checkPermission(permission), inventoryController.deleteItem);
+
+router.post('/batchUpdateInventory', checkPermission(permission), inventoryController.batchUpdateItems);
+
+router.post('/batchDeleteInventory', checkPermission(permission), inventoryController.batchDeleteItems);
+
+router.post('/searchInventoryByItemCode', checkPermission(permission), inventoryController.searchItemsByItemCode);
+router.post('/getItemCodes', checkPermission(permission), inventoryController.getAllItemCodes);
+router.post('/getItemByItemCode', checkPermission(permission), inventoryController.getItemByItemCode);
+
 
 module.exports = router;

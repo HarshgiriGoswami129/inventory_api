@@ -11,7 +11,7 @@ const contactController = {
       // The rest of the form data is in req.body
       const contactData = {
         ...req.body,
-        details: JSON.parse(req.body.details), // The details object will be a string, so we parse it
+        details: typeof req.body.details === 'string' ? JSON.parse(req.body.details) : req.body.details, // The details object will be a string, so we parse it
         image_url: image_url, // Add the image path
         created_by: created_by
       };
@@ -31,7 +31,62 @@ const contactController = {
     } catch (error) {
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }
-  }
+  },
+  updateContact: async (req, res) => {
+    try {
+      const { id } = req.body;
+      if (!id) {
+        return res.status(400).json({ success: false, message: 'Contact ID is required.' });
+      }
+
+      // Parse details JSON if present
+      if (typeof req.body.details === 'string') {
+        req.body.details = JSON.parse(req.body.details);
+      }
+
+      // Include user id from auth
+      req.body.updated_by = req.user.id;
+
+      const updatedContact = await Contact.update(id, req.body);
+
+      res.status(200).json({ success: true, message: 'Contact updated successfully.', data: updatedContact });
+    } catch (error) {
+      console.error('Update Contact Error:', error);
+      res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    }
+  },
+
+  deleteContact: async (req, res) => {
+    try {
+      const { id } = req.body;
+      if (!id) {
+        return res.status(400).json({ success: false, message: 'Contact ID is required.' });
+      }
+
+      await Contact.delete(id);
+
+      res.status(200).json({ success: true, message: 'Contact deleted successfully.' });
+    } catch (error) {
+      console.error('Delete Contact Error:', error);
+      res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    }
+  },
+  getAllContactCodes: async (req, res) => {
+    try {
+        const contactCodes = await Contact.findAllContactCodes();
+        res.status(200).json({
+            success: true,
+            data: contactCodes.map(row => row.code)
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Server Error',
+            error: error.message
+        });
+    }
+},
+
 };
 
 module.exports = contactController;

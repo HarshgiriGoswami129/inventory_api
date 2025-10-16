@@ -25,6 +25,31 @@ const paymentController = {
     } catch (error) {
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }
+  },
+  updatePayment: async (req, res) => {
+  try {
+    const paymentId = req.body.id;
+    const user_id = req.user.id;
+    const image_url = req.file ? req.file.path : null;
+    const updateData = { ...req.body, user_id };
+    if (image_url) updateData.image_url = image_url;
+
+    const updatedPayment = await Payment.update(paymentId, updateData);
+    res.status(200).json({ success: true, message: "Payment updated successfully.", data: updatedPayment });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
   }
+},
+
+deletePayment: async (req, res) => {
+  try {
+    const paymentId = req.body.id;
+    await Payment.delete(paymentId);
+    res.status(200).json({ success: true, message: "Payment deleted successfully." });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+  }
+},
+
 };
 module.exports = paymentController;

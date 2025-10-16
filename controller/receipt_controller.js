@@ -25,6 +25,31 @@ const receiptController = {
     } catch (error) {
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }
+  },
+  updateReceipt: async (req, res) => {
+  try {
+    const receiptId = req.body.id;
+    const user_id = req.user.id;
+    const image_url = req.file ? req.file.path : null;
+    const updateData = { ...req.body, user_id };
+    if (image_url) updateData.image_url = image_url;
+
+    const updatedReceipt = await Receipt.update(receiptId, updateData);
+    res.status(200).json({ success: true, message: "Receipt updated successfully.", data: updatedReceipt });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server Error", error: error.message });
   }
+},
+
+deleteReceipt: async (req, res) => {
+  try {
+    const receiptId = req.body.id;
+    await Receipt.delete(receiptId);
+    res.status(200).json({ success: true, message: "Receipt deleted successfully." });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server Error", error: error.message });
+  }
+},
+
 };
 module.exports = receiptController;
