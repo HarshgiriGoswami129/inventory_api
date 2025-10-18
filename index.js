@@ -1,10 +1,20 @@
 require('dotenv').config(); // MUST be the very first line
+
 const express = require('express');
 const app = express(); // Import the configured Express application
 const db = require('./config/db'); // Import the database pool
 const userRoutes = require('./route/user_route');
 const bodyParser = require('body-parser');
+
 app.use(bodyParser.json());
+
+// ADD THIS CORS FIX
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  next();
+});
 
 const accountRoutes = require('./route/account_route');
 const contactRoutes = require('./route/contact_route');
@@ -23,6 +33,24 @@ const cartonInventoryRoutes = require('./route/carton_inventory_route');
 const patiRoutes = require('./route/pati_route');
 
 const PORT = process.env.PORT || 3000;
+
+// MOVE ALL ROUTES BEFORE startServer()
+app.use('/user', userRoutes);
+app.use('/accounts', accountRoutes);
+app.use('/contacts', contactRoutes);
+app.use('/receipts', receiptRoutes);
+app.use('/payments', paymentRoutes);
+app.use('/master-items', masterRoutes);
+app.use('/inventory-items', inventoryRoutes);
+app.use('/sales-orders', salesOrderRoutes);
+app.use('/sales-invoices', salesInvoiceRoutes);
+app.use('/purchase-invoices', purchaseInvoiceRoutes);
+app.use('/finishes', finishRoutes);
+app.use('/order-stock', orderStockRoutes);
+app.use('/invoicing', invoiceRoutes);
+app.use('/transport', transportRoutes);
+app.use('/carton', cartonInventoryRoutes);
+app.use('/pati', patiRoutes);
 
 // An async function to connect to the DB and then start the server
 const startServer = async () => {
@@ -44,20 +72,3 @@ const startServer = async () => {
 
 // Run the server
 startServer();
-
-app.use('/user',userRoutes);
-app.use('/accounts', accountRoutes);
-app.use('/contacts', contactRoutes);
-app.use('/receipts', receiptRoutes);
-app.use('/payments', paymentRoutes);
-app.use('/master-items', masterRoutes);
-app.use('/inventory-items', inventoryRoutes);
-app.use('/sales-orders', salesOrderRoutes);
-app.use('/sales-invoices', salesInvoiceRoutes);
-app.use('/purchase-invoices', purchaseInvoiceRoutes);
-app.use('/finishes', finishRoutes);
-app.use('/order-stock', orderStockRoutes);
-app.use('/invoicing', invoiceRoutes);
-app.use('/transport', transportRoutes);
-app.use('/carton', cartonInventoryRoutes);
-app.use('/pati', patiRoutes);
