@@ -8,11 +8,18 @@ const bodyParser = require('body-parser');
 
 app.use(bodyParser.json());
 
-// ADD THIS CORS FIX
+// FIXED CORS IMPLEMENTATION
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  
+  // Handle preflight OPTIONS requests - THIS IS THE KEY FIX
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  
   next();
 });
 
