@@ -79,8 +79,7 @@
 
 // // Run the server
 // startServer();
-require('dotenv').config(); // MUST be the very first line
-
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -88,19 +87,18 @@ const db = require('./config/db');
 
 const app = express();
 
-// ✅ Proper CORS configuration
+// ✅ Allow only your frontend domain
 app.use(cors({
-  origin: '*', // change to ['http://localhost:3000', 'https://yourdomain.com'] if needed
+  origin: ['https://otix-new.vercel.app'], // your frontend domain
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true, // allow cookies / auth headers
 }));
 
-// ✅ Enable preflight for all routes
-app.options('*', cors());
-
+app.options('*', cors()); // handle preflights
 app.use(bodyParser.json());
 
-// ✅ Import routes
+// Import your routes
 const userRoutes = require('./route/user_route');
 const accountRoutes = require('./route/account_route');
 const contactRoutes = require('./route/contact_route');
@@ -118,7 +116,7 @@ const transportRoutes = require('./route/trasnport_route');
 const cartonInventoryRoutes = require('./route/carton_inventory_route');
 const patiRoutes = require('./route/pati_route');
 
-// ✅ Use routes
+// Register routes
 app.use('/user', userRoutes);
 app.use('/accounts', accountRoutes);
 app.use('/contacts', contactRoutes);
@@ -138,7 +136,6 @@ app.use('/pati', patiRoutes);
 
 const PORT = process.env.PORT || 3000;
 
-// ✅ Database connection test and start server
 const startServer = async () => {
   try {
     const connection = await db.getConnection();
