@@ -89,7 +89,7 @@ const app = express();
 
 // ✅ Allow only your frontend domain
 app.use(cors({
-  origin: ['https://otix-new.vercel.app'], // your frontend domain
+  origin: "*",
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true, // allow cookies / auth headers
