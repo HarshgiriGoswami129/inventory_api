@@ -83,6 +83,19 @@ const Invoice = {
         await connection.query(itemQuery, [itemValues]);
       }
 
+      // 3. Insert shipping cartons
+      if (invoiceData.cartons && invoiceData.cartons.length > 0) {
+        const cartonFields = ['invoice_id', 'carton_number', 'carton_weight', 'weight_per_ctn'];
+        const cartonQuery = `INSERT INTO shipping_cartons (${cartonFields.join(', ')}) VALUES ?`;
+        const cartonValues = invoiceData.cartons.map(carton => [
+          newInvoiceId,
+          carton.carton_number || null,
+          carton.carton_weight || 0,
+          carton.weight_per_ctn || 0
+        ]);
+        await connection.query(cartonQuery, [cartonValues]);
+      }
+
       // 4. Update carton inventory (Unchanged)
       if (invoiceData.cartons && invoiceData.cartons.length > 0) {
         const cartonCounts = {};
