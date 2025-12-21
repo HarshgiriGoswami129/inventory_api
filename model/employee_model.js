@@ -605,7 +605,54 @@ const EmployeeModel = {
       total_repaid: totalRepaid,
       current_balance: runningBalance
     };
+  },
+  getEmployeesPaginated: async (filters = {}) => {
+  let query = `
+    SELECT
+      e.*,
+      COALESCE(SUM(ea.remaining_balance), 0) AS advance_balance
+    FROM employees e
+    LEFT JOIN employee_advances ea
+      ON e.id = ea.employee_id
+      AND ea.status IN ('PENDING', 'PARTIAL')
+    WHERE 1=1
+  `;
+  const values = [];
+
+  if (filters.search) {
+    query += ' AND (e.name LIKE ? OR e.mobile LIKE ?)';
+    const like = `%${filters.search}%`;
+    values.push(like, like);
   }
+
+  query += ' GROUP BY e.id ORDER BY e.name ASC';
+
+  if (filters.limit) {
+    query += ' LIMIT ?';
+    values.push(parseInt(filters.limit, 10));
+  }
+  if (filters.offset) {
+    query += ' OFFSET ?';
+    values.push(parseInt(filters.offset, 10));
+  }
+
+  const [rows] = await db.query(query, values);
+  return rows;
+},
+
+countEmployees: async (filters = {}) => {
+  let query = 'SELECT COUNT(*) AS total FROM employees e WHERE 1=1';
+  const values = [];
+
+  if (filters.search) {
+    query += ' AND (e.name LIKE ? OR e.mobile LIKE ?)';
+    const like = `%${filters.search}%`;
+    values.push(like, like);
+  }
+
+  const [rows] = await db.query(query, values);
+  return rows[0].total;
+},
 };
 
 module.exports = EmployeeModel;

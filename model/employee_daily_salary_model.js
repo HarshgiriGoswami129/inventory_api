@@ -101,6 +101,109 @@ const EmployeeDailySalary = {
   const [rows] = await db.query(query, [start_date, end_date]);
   return rows;
 },
+
+// total count with same filters as findAll
+countAll: async (filters = {}) => {
+  const { employee_id, start_date, end_date } = filters;
+  const where = [];
+  const values = [];
+
+  if (employee_id) {
+    where.push('employee_id = ?');
+    values.push(employee_id);
+  }
+  if (start_date) {
+    where.push('work_date >= ?');
+    values.push(start_date);
+  }
+  if (end_date) {
+    where.push('work_date <= ?');
+    values.push(end_date);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const query = `
+    SELECT COUNT(*) AS total
+    FROM employee_daily_salary_records
+    ${whereSql}
+  `;
+  const [rows] = await db.query(query, values);
+  return rows[0].total;
+},
+
+// paginated list with ORDER BY (used by getAll + getByEmployeeAndDateRange)
+findAllPaginated: async (filters = {}) => {
+  const { employee_id, start_date, end_date, limit, offset } = filters;
+  const where = [];
+  const values = [];
+
+  if (employee_id) {
+    where.push('employee_id = ?');
+    values.push(employee_id);
+  }
+  if (start_date) {
+    where.push('work_date >= ?');
+    values.push(start_date);
+  }
+  if (end_date) {
+    where.push('work_date <= ?');
+    values.push(end_date);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  let query = `
+    SELECT *
+    FROM employee_daily_salary_records
+    ${whereSql}
+    ORDER BY work_date DESC, id DESC
+  `;
+
+  if (limit) {
+    query += ' LIMIT ?';
+    values.push(parseInt(limit, 10));
+  }
+  if (offset) {
+    query += ' OFFSET ?';
+    values.push(parseInt(offset, 10));
+  }
+
+  const [rows] = await db.query(query, values);
+  return rows;
+},
+countCurrentWeek: async (start_date, end_date) => {
+  const query = `
+    SELECT COUNT(*) AS total
+    FROM employee_daily_salary_records
+    WHERE work_date BETWEEN ? AND ?
+  `;
+  const [rows] = await db.query(query, [start_date, end_date]);
+  return rows[0].total;
+},
+
+getWithEmployeeByDateRangePaginated: async (start_date, end_date, limit, offset) => {
+  const values = [start_date, end_date];
+  let query = `
+    SELECT
+      r.*,
+      e.name AS employee_name
+    FROM employee_daily_salary_records r
+    JOIN employees e ON e.id = r.employee_id
+    WHERE r.work_date BETWEEN ? AND ?
+    ORDER BY r.employee_id, r.work_date, r.id
+  `;
+  if (limit) {
+    query += ' LIMIT ?';
+    values.push(parseInt(limit, 10));
+  }
+  if (offset) {
+    query += ' OFFSET ?';
+    values.push(parseInt(offset, 10));
+  }
+  const [rows] = await db.query(query, values);
+  return rows;
+},
+
+
 };
 
 module.exports = EmployeeDailySalary;

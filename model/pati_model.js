@@ -35,6 +35,17 @@ const PatiTable = {
     const [rows] = await db.query('SELECT pati_type FROM pati_table');
     return rows.map(row => row.pati_type);
   },
+  findPaginated: async (limit, offset) => {
+    const query = 'SELECT * FROM pati_table ORDER BY id DESC LIMIT ? OFFSET ?';
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
+
+  // NEW: total count
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM pati_table');
+    return rows[0].total;
+  }
 
 };
 

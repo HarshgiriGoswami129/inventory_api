@@ -28,6 +28,17 @@ const OrderStock = {
     const query = 'DELETE FROM order_stock WHERE id = ?';
     const [result] = await db.query(query, [id]);
     return result.affectedRows;
+  },
+   getPaginated: async (limit, offset) => {
+    const query = 'SELECT * FROM order_stock ORDER BY id DESC LIMIT ? OFFSET ?';
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
+
+  // NEW: total count
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM order_stock');
+    return rows[0].total;
   }
 };
 

@@ -19,6 +19,12 @@ router.post('/getAccountSummary', checkPermission(permission), accountHistoryCon
 
 // Get account history by account name (e.g., "NO_1")
 router.post('/getAccountHistoryByName', checkPermission(permission), accountHistoryController.getAccountHistoryByName);
+// NEW: paginated all account history
+router.post(
+  '/getAllAccountHistoryPaginated', 
+  checkPermission(permission), 
+  accountHistoryController.getAllAccountHistoryPaginated
+);
 
 module.exports = router;
 

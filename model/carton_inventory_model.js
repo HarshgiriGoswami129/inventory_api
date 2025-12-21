@@ -19,6 +19,19 @@ const CartonInventory = {
     const [rows] = await db.query('SELECT carton_name FROM carton_inventory');
     return rows.map(row => row.carton_name);
   },
+  findPaginated: async (limit, offset) => {
+    const [rows] = await db.query(
+      'SELECT * FROM carton_inventory ORDER BY id DESC LIMIT ? OFFSET ?',
+      [limit, offset]
+    );
+    return rows;
+  },
+
+  // NEW: total count
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM carton_inventory');
+    return rows[0].total;
+  }
 
   // You can add findAll, update, and delete functions here later
 };

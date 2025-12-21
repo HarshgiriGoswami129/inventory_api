@@ -21,6 +21,12 @@ router.post('/update', checkPermission(permission), journalCustomerController.up
 
 // Delete customer
 router.post('/delete', checkPermission(permission), journalCustomerController.delete);
+router.post(
+  '/getAllPaginated',
+  checkPermission(permission),
+  journalCustomerController.getAllPaginated
+);
+
 
 module.exports = router;
 

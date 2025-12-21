@@ -28,6 +28,17 @@ const Finishes = {
     const query = 'DELETE FROM finishes_table WHERE id = ?';
     const [result] = await db.query(query, [id]);
     return result.affectedRows;
+  },
+  getPaginated: async (limit, offset) => {
+    const query = 'SELECT * FROM finishes_table ORDER BY id DESC LIMIT ? OFFSET ?';
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
+
+  // NEW: total count
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM finishes_table');
+    return rows[0].total;
   }
 };
 

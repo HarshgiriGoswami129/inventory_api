@@ -14,5 +14,10 @@ router.post('/getAllPati', checkPermission(permission), patiController.getAllPat
 router.post('/updatePati', checkPermission(permission), patiController.updatePati);
 router.post('/deletePati', checkPermission(permission), patiController.deletePati);
 router.post('/getPatiTypes', checkPermission(permission), patiController.getPatiTypes);
-
+// NEW: paginated Pati
+router.post(
+  '/getAllPatiPaginated',
+  checkPermission(permission),
+  patiController.getAllPatiPaginated
+);
 module.exports = router;

@@ -45,6 +45,17 @@ searchByExactItemCode: async (itemCode) => {
   const rows = await db.query(query, [itemCode]);
   return rows[0] || null;
 },
+findPaginated: async (limit, offset) => {
+    const query = 'SELECT * FROM inventory_items ORDER BY id DESC LIMIT ? OFFSET ?';
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
+
+  // NEW: total count
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM inventory_items');
+    return rows[0].total;
+  }
 
 };
 module.exports = InventoryItem;

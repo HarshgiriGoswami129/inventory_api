@@ -15,5 +15,10 @@ router.post('/getAllAccount', checkPermission(permission), accountController.get
 // --- NEW: Routes for update and delete ---
 router.post('/updateAccount', checkPermission(permission), accountController.updateAccount);
 router.post('/deleteAccount', checkPermission(permission), accountController.deleteAccount);
+router.post(
+  '/getAllAccountPaginated',
+  checkPermission(permission),
+  accountController.getAllAccountsPaginated
+);
 
 module.exports = router;

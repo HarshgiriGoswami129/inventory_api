@@ -74,6 +74,22 @@ const JournalCustomerModel = {
     const [result] = await db.query(query, [id]);
     return result.affectedRows > 0;
   },
+  getPaginated: async (limit, offset) => {
+    const query = `
+      SELECT *
+      FROM journal_customers
+      ORDER BY id DESC
+      LIMIT ? OFFSET ?
+    `;
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
+
+  // NEW: total count
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM journal_customers');
+    return rows[0].total;
+  }
 };
 
 module.exports = JournalCustomerModel;

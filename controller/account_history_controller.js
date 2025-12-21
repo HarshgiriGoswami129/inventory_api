@@ -179,6 +179,75 @@ const accountHistoryController = {
         error: error.message
       });
     }
+  },
+  getAllAccountHistoryPaginated: async (req, res) => {
+    try {
+      let {
+        page = 1,
+        page_limit = 20,
+        account_id,
+        start_date,
+        end_date,
+        transaction_type,
+        contact_id
+      } = req.body;
+
+      page = parseInt(page, 10);
+      if (isNaN(page) || page < 1) page = 1;
+
+      page_limit = parseInt(page_limit, 10);
+      if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+      const filtersWithPaging = {
+        account_id,
+        start_date,
+        end_date,
+        transaction_type,
+        contact_id,
+        limit: page_limit,
+        offset: (page - 1) * page_limit
+      };
+
+      const filtersForCount = {
+        account_id,
+        start_date,
+        end_date,
+        transaction_type,
+        contact_id
+      };
+
+      const [history, total] = await Promise.all([
+        AccountHistory.findAllPaginated(filtersWithPaging),
+        AccountHistory.countAll(filtersForCount)
+      ]);
+
+      const totalPages = Math.ceil(total / page_limit);
+
+      return res.status(200).json({
+        success: true,
+        data: history,
+        meta: {
+          page,
+          page_limit,
+          total_records: total,
+          total_pages: totalPages,
+          filters_applied: {
+            account_id,
+            start_date,
+            end_date,
+            transaction_type,
+            contact_id
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Get All Account History Paginated Error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Server Error',
+        error: error.message
+      });
+    }
   }
 };
 

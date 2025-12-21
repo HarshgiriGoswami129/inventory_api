@@ -45,6 +45,18 @@ const PaymentMethodModel = {
     const query = 'DELETE FROM payment_methods WHERE id = ?';
     const [result] = await db.query(query, [id]);
     return result.affectedRows > 0;
+  },
+  // NEW: paginated list
+  getPaginated: async (limit, offset) => {
+    const query = 'SELECT * FROM payment_methods ORDER BY id DESC LIMIT ? OFFSET ?';
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
+
+  // NEW: total count
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM payment_methods');
+    return rows[0].total;
   }
 };
 

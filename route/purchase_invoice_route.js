@@ -50,5 +50,17 @@ router.post('/batchDeletePurchaseInvoices', [authMiddleware, checkPermission('pu
 router.post('/getDataFromInventoryItem', [authMiddleware, checkPermission('purchase_invoices')], purchaseInvoiceController.getInventoryDetailsByCodeUser);
 router.post('/getSummaries', [authMiddleware, checkPermission('purchase_invoices')], purchaseInvoiceController.getInvoiceSummaries);
 router.post('/getUserCode', [authMiddleware, checkPermission('purchase_invoices')], purchaseInvoiceController.getUserCode);
+// NEW: summaries paginated
+router.post(
+  '/getSummariesPaginated',
+  [authMiddleware, checkPermission('purchase_invoices')],
+  purchaseInvoiceController.getInvoiceSummariesPaginated
+);
+// NEW: all invoices with items paginated
+router.post(
+  '/getPurchaseInvoicePaginated',
+  [authMiddleware, checkPermission('purchase_invoices')],
+  purchaseInvoiceController.getAllInvoicesWithItemsPaginated
+);
 
 module.exports = router;

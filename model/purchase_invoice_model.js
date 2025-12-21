@@ -181,6 +181,48 @@ updateWithItems: async (invoiceId, invoiceData, lineItems = [], deletedItemIds =
     const [rows] = await db.query('SELECT code_user FROM inventory_items WHERE user = ?', [user]);
     return rows.map(row => row.code_user);
   },
+  // NEW: count all invoices
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM purchase_invoices');
+    return rows[0].total;
+  },
+
+  // NEW: paginated invoices (header only)
+  findPaginated: async (limit, offset) => {
+    const query =
+      'SELECT * FROM purchase_invoices ORDER BY issue_date DESC LIMIT ? OFFSET ?';
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
+
+  // NEW: count for summaries (same table)
+  countAllForSummaries: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM purchase_invoices');
+    return rows[0].total;
+  },
+
+  // NEW: paginated summaries (same query as findAllWithTotalAmount + LIMIT/OFFSET)
+  findAllWithTotalAmountPaginated: async (limit, offset) => {
+    const query = `
+      SELECT
+        pi.id,
+        pi.code_user,
+        pi.invoice_number,
+        pi.issue_date,
+        COALESCE(SUM(pii.amount), 0.00) AS total_amount
+      FROM
+        purchase_invoices AS pi
+      LEFT JOIN
+        purchase_invoice_items AS pii ON pi.id = pii.invoice_id
+      GROUP BY
+        pi.id
+      ORDER BY
+        pi.issue_date DESC
+      LIMIT ? OFFSET ?
+    `;
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
 };
 
 module.exports = PurchaseInvoice;

@@ -9,6 +9,12 @@ router.post('/', [authMiddleware, checkPermission('payments'), upload.single('im
 router.post('/getAllPayment', [authMiddleware, checkPermission('payments')], paymentController.getAllPayments);
 router.post('/updatePayment', [authMiddleware, checkPermission('payments'), upload.single('image')], paymentController.updatePayment);
 router.post('/deletePayment', [authMiddleware, checkPermission('payments')], paymentController.deletePayment);
+// NEW: paginated payments
+router.post(
+  '/getAllPaymentPaginated',
+  [authMiddleware, checkPermission('payments')],
+  paymentController.getAllPaymentsPaginated
+);
 
 
 module.exports = router;

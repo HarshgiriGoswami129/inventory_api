@@ -69,6 +69,42 @@ deleteReceipt: async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error", error: error.message });
   }
 },
+// NEW: paginated receipts
+  getAllReceiptsPaginated: async (req, res) => {
+    try {
+      let { page, page_limit } = req.body;
+
+      page = parseInt(page, 10);
+      if (isNaN(page) || page < 1) page = 1;
+
+      page_limit = parseInt(page_limit, 10);
+      if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+      const offset = (page - 1) * page_limit;
+
+      const [receipts, total] = await Promise.all([
+        Receipt.findPaginated(page_limit, offset),
+        Receipt.countAll()
+      ]);
+
+      const totalPages = Math.ceil(total / page_limit);
+
+      return res.status(200).json({
+        success: true,
+        data: receipts,
+        meta: {
+          page,
+          page_limit,
+          total_records: total,
+          total_pages: totalPages
+        }
+      });
+    } catch (error) {
+      return res
+        .status(500)
+        .json({ success: false, message: 'Server Error', error: error.message });
+    }
+  },
 
 };
 module.exports = receiptController;

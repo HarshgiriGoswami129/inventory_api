@@ -138,7 +138,52 @@ const employeeController = {
             console.error('Error in deleteEmployee:', error);
             res.status(500).json({ success: false, message: 'Server Error', error: error.message });
         }
-    }
+    },
+    getEmployeesPaginated: async (req, res) => {
+  try {
+    let { page = 1, page_limit = 20, search } = req.body;
+
+    page = parseInt(page, 10);
+    if (isNaN(page) || page < 1) page = 1;
+
+    page_limit = parseInt(page_limit, 10);
+    if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+    const filtersWithPaging = {
+      search,
+      limit: page_limit,
+      offset: (page - 1) * page_limit
+    };
+
+    const filtersForCount = { search };
+
+    const [employees, total] = await Promise.all([
+      EmployeeModel.getEmployeesPaginated(filtersWithPaging),
+      EmployeeModel.countEmployees(filtersForCount)
+    ]);
+
+    const totalPages = Math.ceil(total / page_limit);
+
+    return res.status(200).json({
+      success: true,
+      data: employees,
+      meta: {
+        page,
+        page_limit,
+        total_records: total,
+        total_pages: totalPages,
+        filters_applied: { search }
+      }
+    });
+  } catch (error) {
+    console.error('Error in getEmployeesPaginated:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+},
 };
 
 module.exports = employeeController;

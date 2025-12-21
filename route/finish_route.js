@@ -7,5 +7,6 @@ router.post('/',authMiddleware, finishesController.addFinish);
 router.post('/getFinish',authMiddleware, finishesController.getFinishes);
 router.post('/updateFinish',authMiddleware, finishesController.updateFinish);
 router.post('/deleteFinish',authMiddleware, finishesController.deleteFinish);
+router.post('/getFinishPaginated', authMiddleware, finishesController.getFinishesPaginated);
 
 module.exports = router;

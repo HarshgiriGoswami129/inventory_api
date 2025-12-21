@@ -161,6 +161,82 @@ const invoiceController = {
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }
   },
+  getAllInvoicesPaginated: async (req, res) => {
+    try {
+      let { page, page_limit } = req.body;
+
+      page = parseInt(page, 10);
+      if (isNaN(page) || page < 1) page = 1;
+
+      page_limit = parseInt(page_limit, 10);
+      if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+      const offset = (page - 1) * page_limit;
+
+      const [invoices, total] = await Promise.all([
+        Invoice.findPaginated(page_limit, offset),
+        Invoice.countAll()
+      ]);
+
+      const totalPages = Math.ceil(total / page_limit);
+
+      return res.status(200).json({
+        success: true,
+        data: invoices,
+        meta: {
+          page,
+          page_limit,
+          total_records: total,
+          total_pages: totalPages
+        }
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Server Error',
+        error: error.message
+      });
+    }
+  },
+
+  // NEW: paginated invoice summary
+  getInvoiceSummaryPaginated: async (req, res) => {
+    try {
+      let { page, page_limit } = req.body;
+
+      page = parseInt(page, 10);
+      if (isNaN(page) || page < 1) page = 1;
+
+      page_limit = parseInt(page_limit, 10);
+      if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+      const offset = (page - 1) * page_limit;
+
+      const [summaryRows, total] = await Promise.all([
+        Invoice.getInvoiceSummaryPaginated(page_limit, offset),
+        Invoice.countAllForSummary()
+      ]);
+
+      const totalPages = Math.ceil(total / page_limit);
+
+      return res.status(200).json({
+        success: true,
+        data: summaryRows,
+        meta: {
+          page,
+          page_limit,
+          total_records: total,
+          total_pages: totalPages
+        }
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Server Error',
+        error: error.message
+      });
+    }
+  }
 };
 
 module.exports = invoiceController;

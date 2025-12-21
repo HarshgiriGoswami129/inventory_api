@@ -226,6 +226,18 @@ delete: async (id) => {
     connection.release();
   }
 },
+// NEW: paginated list (newest first)
+  findPaginated: async (limit, offset) => {
+    const query = 'SELECT * FROM receipts ORDER BY id DESC LIMIT ? OFFSET ?';
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
+
+  // NEW: total count
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM receipts');
+    return rows[0].total;
+  },
 
 };
 module.exports = Receipt;

@@ -319,6 +319,87 @@ const AccountHistory = {
   deleteByPaymentId: async (paymentId) => {
     const [result] = await db.query('DELETE FROM account_history WHERE payment_id = ?', [paymentId]);
     return result.affectedRows;
+  },
+  // NEW: total count for pagination (no joins, safe)
+  countAll: async (filters = {}) => {
+    let query = 'SELECT COUNT(*) AS total FROM account_history WHERE 1=1';
+    const values = [];
+
+    if (filters.account_id) {
+      query += ' AND account_id = ?';
+      values.push(filters.account_id);
+    }
+    if (filters.start_date) {
+      query += ' AND date >= ?';
+      values.push(filters.start_date);
+    }
+    if (filters.end_date) {
+      query += ' AND date <= ?';
+      values.push(filters.end_date);
+    }
+    if (filters.transaction_type) {
+      query += ' AND transaction_type = ?';
+      values.push(filters.transaction_type);
+    }
+    if (filters.contact_id) {
+      query += ' AND contact_id = ?';
+      values.push(filters.contact_id);
+    }
+
+    const [rows] = await db.query(query, values);
+    return rows[0].total;
+  },
+
+  // NEW: dedicated paginated finder using real contacts schema
+  findAllPaginated: async (filters = {}) => {
+    let query = `
+      SELECT
+        ah.*,
+        a.account_name,
+        a.code AS account_code,
+        COALESCE(c.contact_name, ah.contact_name) AS contact_full_name,
+        c.code AS contact_code
+      FROM account_history ah
+      LEFT JOIN accounts a ON ah.account_id = a.id
+      LEFT JOIN contacts c ON ah.contact_id = c.id
+      WHERE 1=1
+    `;
+    const values = [];
+
+    if (filters.account_id) {
+      query += ' AND ah.account_id = ?';
+      values.push(filters.account_id);
+    }
+    if (filters.start_date) {
+      query += ' AND ah.date >= ?';
+      values.push(filters.start_date);
+    }
+    if (filters.end_date) {
+      query += ' AND ah.date <= ?';
+      values.push(filters.end_date);
+    }
+    if (filters.transaction_type) {
+      query += ' AND ah.transaction_type = ?';
+      values.push(filters.transaction_type);
+    }
+    if (filters.contact_id) {
+      query += ' AND ah.contact_id = ?';
+      values.push(filters.contact_id);
+    }
+
+    query += ' ORDER BY ah.date DESC, ah.created_at DESC';
+
+    if (filters.limit) {
+      query += ' LIMIT ?';
+      values.push(parseInt(filters.limit, 10));
+    }
+    if (filters.offset) {
+      query += ' OFFSET ?';
+      values.push(parseInt(filters.offset, 10));
+    }
+
+    const [rows] = await db.query(query, values);
+    return rows;
   }
 };
 

@@ -464,6 +464,99 @@ const Invoice = {
       if (connection) connection.release();
     }
   },
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM invoices');
+    return rows[0].total;
+  },
+
+  // NEW: paginated invoices with items + cartons (same structure as findAll)
+  findPaginated: async (limit, offset) => {
+    const invoicesQuery = 'SELECT * FROM invoices ORDER BY id DESC LIMIT ? OFFSET ?';
+    const [invoices] = await db.query(invoicesQuery, [limit, offset]);
+
+    for (const invoice of invoices) {
+      const itemsQuery = 'SELECT * FROM invoice_items WHERE invoice_id = ?';
+      const [items] = await db.query(itemsQuery, [invoice.id]);
+      invoice.items = items;
+
+      let totalNetKg = 0;
+      if (items && items.length > 0) {
+        totalNetKg = items.reduce((sum, item) => {
+          return sum + (parseFloat(item.net_kg) || 0);
+        }, 0);
+      }
+      invoice.total_net_kg = parseFloat(totalNetKg.toFixed(3));
+
+      const cartonsQuery = 'SELECT * FROM shipping_cartons WHERE invoice_id = ?';
+      const [cartons] = await db.query(cartonsQuery, [invoice.id]);
+      invoice.cartons = cartons;
+    }
+
+    return invoices;
+  },
+
+  // NEW: total count for summary query
+  countAllForSummary: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM invoices');
+    return rows[0].total;
+  },
+
+  // NEW: paginated version of invoice summary
+  getInvoiceSummaryPaginated: async (limit, offset) => {
+    const currentDate = new Date();
+    const query = `
+      SELECT
+        i.id, i.invoice_number AS invoiceNo, i.invoice_date, i.customer_id,
+        i.reference_no_1 AS No1, i.reference_no_2 AS No2, cd.credit_period,
+        i.remaining_amount
+      FROM invoices i
+      LEFT JOIN contacts c ON i.customer_id = c.code
+      LEFT JOIN customer_details cd ON c.id = cd.contact_id
+      ORDER BY i.id DESC
+      LIMIT ? OFFSET ?
+    `;
+    const [rows] = await db.query(query, [limit, offset]);
+
+    return rows.map(row => {
+      const invoiceDate = new Date(row.invoice_date);
+      const diffTime = currentDate - invoiceDate;
+      const daysElapsed = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+      let creditDays = 0;
+      if (row.credit_period) {
+        const match = row.credit_period.match(/\d+/);
+        creditDays = match ? parseInt(match[0]) : 0;
+      }
+
+      const daysLeft = creditDays - daysElapsed;
+      const daysOverdue = daysLeft < 0 ? Math.abs(daysLeft) : 0;
+
+      let status = 'PENDING';
+      if (daysOverdue > 0) {
+        status = 'OVERDUE';
+      }
+
+      const parseNumber = (val) => {
+        const num = parseFloat(val);
+        return isNaN(num) ? 0 : num;
+      };
+
+      return {
+        id: row.id,
+        invoiceNo: row.invoiceNo,
+        cutomer_id: row.customer_id,
+        daysElapsed,
+        creditDays,
+        daysLeft: daysLeft >= 0 ? daysLeft : 0,
+        daysOverdue,
+        status,
+        No1: row.No1 || 0,
+        No2: row.No2 || 0,
+        No1_plus_No2: parseNumber(row.No1) + parseNumber(row.No2),
+        remaining_amount: parseNumber(row.remaining_amount)
+      };
+    });
+  }
 };
 
 module.exports = Invoice;

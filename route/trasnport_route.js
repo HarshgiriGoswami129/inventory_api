@@ -15,5 +15,7 @@ router.post('/addTransport',authMiddleware, transportController.addTransport);
 router.post('/getTransports', authMiddleware, transportController.getTransports);
 router.post('/updateTransport', authMiddleware, transportController.updateTransport);
 router.post('/deleteTransport', authMiddleware, transportController.deleteTransport);
+// NEW: paginated transports
+router.post('/getTransportsPaginated', transportController.getTransportsPaginated);
 
 module.exports = router;

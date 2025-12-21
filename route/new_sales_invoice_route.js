@@ -21,5 +21,17 @@ router.post(
   invoiceController.getInvoiceSummary
 );
 router.post('/statement', invoiceController.getStatement);
+router.post(
+  '/getInvoiceSummary',
+  [authMiddleware, checkPermission('sales_invoices')],
+  invoiceController.getInvoiceSummary
+);
+
+// NEW: summary paginated
+router.post(
+  '/getInvoiceSummaryPaginated',
+  [authMiddleware, checkPermission('sales_invoices')],
+  invoiceController.getInvoiceSummaryPaginated
+);
 
 module.exports = router;

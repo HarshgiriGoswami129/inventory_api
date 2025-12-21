@@ -48,6 +48,49 @@ const cartonInventoryController = {
     });
   }
 },
+getAllCartonsPaginated: async (req, res) => {
+    try {
+      let { page, page_limit } = req.body;
+
+      // Validate page
+      page = parseInt(page, 10);
+      if (isNaN(page) || page < 1) {
+        page = 1;
+      }
+
+      // Validate page_limit, default 20
+      page_limit = parseInt(page_limit, 10);
+      if (isNaN(page_limit) || page_limit <= 0) {
+        page_limit = 20;
+      }
+
+      const offset = (page - 1) * page_limit;
+
+      const [cartons, total] = await Promise.all([
+        CartonInventory.findPaginated(page_limit, offset),
+        CartonInventory.countAll()
+      ]);
+
+      const totalPages = Math.ceil(total / page_limit);
+
+      return res.status(200).json({
+        success: true,
+        data: cartons,
+        meta: {
+          page,
+          page_limit,
+          total_records: total,
+          total_pages: totalPages
+        }
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Server Error',
+        error: error.message
+      });
+    }
+  }
 
 
   // You can add getAllCartons, updateCarton, etc. functions here later

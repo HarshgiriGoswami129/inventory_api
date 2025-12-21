@@ -21,6 +21,11 @@ router.post('/batchDeleteInventory', checkPermission(permission), inventoryContr
 router.post('/searchInventoryByItemCode', checkPermission(permission), inventoryController.searchItemsByItemCode);
 router.post('/getItemCodes', checkPermission(permission), inventoryController.getAllItemCodes);
 router.post('/getItemByItemCode', checkPermission(permission), inventoryController.getItemByItemCode);
+router.post(
+  '/getAllInventoryPaginated',
+  checkPermission(permission),
+  inventoryController.getAllItemsPaginated
+);
 
 
 module.exports = router;

@@ -10,4 +10,11 @@ router.post('/getAllReceipt', [authMiddleware, checkPermission('receipts')], rec
 router.post('/updateReceipt', [authMiddleware, checkPermission('receipts'), upload.single('image')], receiptController.updateReceipt);
 
 router.post('/deleteReceipt', [authMiddleware, checkPermission('receipts')], receiptController.deleteReceipt);
+
+// NEW: paginated receipts
+router.post(
+  '/getAllReceiptPaginated',
+  [authMiddleware, checkPermission('receipts')],
+  receiptController.getAllReceiptsPaginated
+);
 module.exports = router;

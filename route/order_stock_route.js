@@ -7,5 +7,10 @@ router.post('/',authMiddleware, orderStockController.addOrderStock);
 router.post('/getOrderStock',authMiddleware, orderStockController.getOrderStock);
 router.post('/updateOrderStock',authMiddleware, orderStockController.updateOrderStock);
 router.post('/deleteOrderStock', authMiddleware,orderStockController.deleteOrderStock);
+router.post(
+  '/getOrderStockPaginated',
+  authMiddleware,
+  orderStockController.getOrderStockPaginated
+);
 
 module.exports = router;

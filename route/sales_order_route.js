@@ -29,5 +29,12 @@ router.post('/getSuppliersCodeName', salesOrderController.getSuppliersCodeAndNam
 
 router.post('/getStockByItemCode', checkPermission(permission), salesOrderController.getStockByItemCode);
 
+// NEW: all orders paginated
+router.post(
+  '/getAllSalesOrderPaginated',
+  checkPermission(permission),
+  salesOrderController.getAllOrdersPaginated
+);
+
 
 module.exports = router;

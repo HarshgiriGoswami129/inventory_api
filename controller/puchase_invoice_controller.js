@@ -227,7 +227,91 @@ const purchaseInvoiceController = {
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }
   },
+getAllInvoicesWithItemsPaginated: async (req, res) => {
+    try {
+      let { page, page_limit } = req.body;
 
+      page = parseInt(page, 10);
+      if (isNaN(page) || page < 1) page = 1;
+
+      page_limit = parseInt(page_limit, 10);
+      if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+      const offset = (page - 1) * page_limit;
+
+      const [invoices, total] = await Promise.all([
+        PurchaseInvoice.findPaginated(page_limit, offset),
+        PurchaseInvoice.countAll()
+      ]);
+
+      const invoicesWithDetails = await Promise.all(
+        invoices.map(async (invoice) => {
+          const items = await PurchaseInvoice.findItemsByInvoiceId(invoice.id);
+          return { ...invoice, items };
+        })
+      );
+
+      const totalPages = Math.ceil(total / page_limit);
+
+      return res.status(200).json({
+        success: true,
+        data: invoicesWithDetails,
+        meta: {
+          page,
+          page_limit,
+          total_records: total,
+          total_pages: totalPages
+        }
+      });
+    } catch (error) {
+      console.error('Error getting paginated invoices:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Server Error',
+        error: error.message
+      });
+    }
+  },
+
+  // NEW: invoice summaries paginated
+  getInvoiceSummariesPaginated: async (req, res) => {
+    try {
+      let { page, page_limit } = req.body;
+
+      page = parseInt(page, 10);
+      if (isNaN(page) || page < 1) page = 1;
+
+      page_limit = parseInt(page_limit, 10);
+      if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+      const offset = (page - 1) * page_limit;
+
+      const [summaries, total] = await Promise.all([
+        PurchaseInvoice.findAllWithTotalAmountPaginated(page_limit, offset),
+        PurchaseInvoice.countAllForSummaries()
+      ]);
+
+      const totalPages = Math.ceil(total / page_limit);
+
+      return res.status(200).json({
+        success: true,
+        data: summaries,
+        meta: {
+          page,
+          page_limit,
+          total_records: total,
+          total_pages: totalPages
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching paginated invoice summaries:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Server Error',
+        error: error.message
+      });
+    }
+  }
 };
 
 module.exports = purchaseInvoiceController;

@@ -142,6 +142,18 @@ delete: async (id) => {
     connection.release();
   }
 },
+// NEW: paginated list of payments (newest first)
+  findPaginated: async (limit, offset) => {
+    const query = 'SELECT * FROM payments ORDER BY id DESC LIMIT ? OFFSET ?';
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
+
+  // NEW: total payments count
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM payments');
+    return rows[0].total;
+  },
 
 };
 module.exports = Payment;

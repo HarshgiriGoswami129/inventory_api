@@ -11,6 +11,11 @@ const permission = 'inventory_items';
 router.post('/getItemStockHistory', checkPermission(permission), stockHistoryController.getItemStockHistory);
 router.post('/getAllStockHistory', checkPermission(permission), stockHistoryController.getAllStockHistory);
 router.post('/getItemStockSummary', checkPermission(permission), stockHistoryController.getItemStockSummary);
+router.post(
+  '/getAllStockHistoryPaginated', 
+  checkPermission(permission), 
+  stockHistoryController.getAllStockHistoryPaginated
+);
 
 module.exports = router;
 

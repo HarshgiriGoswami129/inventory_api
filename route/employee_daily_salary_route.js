@@ -24,5 +24,23 @@ router.post(
   checkPermission(permission),
   employeeDailySalaryController.getCurrentWeekSummary
 );
+router.post(
+  '/getByEmployeeAndDateRangePaginated',
+  checkPermission(permission),
+  employeeDailySalaryController.getByEmployeeAndDateRangePaginated
+);
+
+router.post(
+  '/getCurrentWeekPaginated',
+  checkPermission(permission),
+  employeeDailySalaryController.getCurrentWeekSummaryPaginated
+);
+
+router.post(
+  '/getAllPaginated',
+  checkPermission(permission),
+  employeeDailySalaryController.getAllRecordsPaginated
+);
+
 
 module.exports = router;

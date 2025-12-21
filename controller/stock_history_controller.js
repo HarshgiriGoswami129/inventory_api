@@ -99,6 +99,73 @@ const stockHistoryController = {
         error: error.message
       });
     }
+  },
+  getAllStockHistoryPaginated: async (req, res) => {
+    try {
+      let { 
+        page = 1, 
+        page_limit = 20, 
+        item_code, 
+        start_date, 
+        end_date, 
+        transaction_type, 
+        invoice_type 
+      } = req.body;
+
+      page = parseInt(page, 10);
+      if (isNaN(page) || page < 1) page = 1;
+
+      page_limit = parseInt(page_limit, 10);
+      if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+      const filters = {
+        item_code,
+        start_date,
+        end_date,
+        transaction_type,
+        invoice_type,
+        limit: page_limit,
+        offset: (page - 1) * page_limit
+      };
+
+      const [history, total] = await Promise.all([
+        StockHistory.findAll(filters),
+        StockHistory.countAll({ 
+          item_code, 
+          start_date, 
+          end_date, 
+          transaction_type, 
+          invoice_type 
+        })
+      ]);
+
+      const totalPages = Math.ceil(total / page_limit);
+
+      return res.status(200).json({
+        success: true,
+        data: history,
+        meta: {
+          page,
+          page_limit,
+          total_records: total,
+          total_pages: totalPages,
+          filters_applied: {
+            item_code,
+            start_date,
+            end_date,
+            transaction_type,
+            invoice_type
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Get All Stock History Paginated Error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Server Error',
+        error: error.message
+      });
+    }
   }
 };
 

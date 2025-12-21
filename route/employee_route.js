@@ -66,5 +66,9 @@ router.post('/update', checkPermission(permission), conditionalMulter, employeeC
 
 // Delete employee
 router.post('/delete', checkPermission(permission), employeeController.deleteEmployee);
+router.post(
+  '/getEmployeesPaginated',checkPermission(permission),   // or your actual permission key
+  employeeController.getEmployeesPaginated
+);
 
 module.exports = router;

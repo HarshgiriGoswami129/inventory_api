@@ -37,6 +37,17 @@ const MasterItem = {
     const [rows] = await db.query('SELECT item_code FROM master_items');
     return rows.map(row => row.item_code);
 },
+findPaginated: async (limit, offset) => {
+    const query = 'SELECT * FROM master_items ORDER BY id DESC LIMIT ? OFFSET ?';
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
+
+  // NEW: total master item count
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM master_items');
+    return rows[0].total;
+  },
 
 };
 module.exports = MasterItem;

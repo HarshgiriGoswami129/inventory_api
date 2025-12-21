@@ -350,6 +350,215 @@ const employeeDailySalaryController = {
     });
   }
 },
+getByEmployeeAndDateRangePaginated: async (req, res) => {
+  try {
+    let {
+      employee_id,
+      start_date,
+      end_date,
+      page = 1,
+      page_limit = 20,
+    } = req.body;
+
+    if (!employee_id || !start_date || !end_date) {
+      return res.status(400).json({
+        success: false,
+        message: 'employee_id, start_date and end_date are required',
+      });
+    }
+
+    page = parseInt(page, 10);
+    if (isNaN(page) || page < 1) page = 1;
+
+    page_limit = parseInt(page_limit, 10);
+    if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+    const filtersWithPaging = {
+      employee_id,
+      start_date,
+      end_date,
+      limit: page_limit,
+      offset: (page - 1) * page_limit,
+    };
+
+    const filtersForCount = { employee_id, start_date, end_date };
+
+    const [records, total, summary] = await Promise.all([
+      EmployeeDailySalary.findAllPaginated(filtersWithPaging),
+      EmployeeDailySalary.countAll(filtersForCount),
+      EmployeeDailySalary.sumByEmployeeAndDateRange(
+        employee_id,
+        start_date,
+        end_date
+      ),
+    ]);
+
+    const totalPages = Math.ceil(total / page_limit);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        records,
+        summary,
+      },
+      meta: {
+        page,
+        page_limit,
+        total_records: total,
+        total_pages: totalPages,
+        filters_applied: { employee_id, start_date, end_date },
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message,
+    });
+  }
+},
+getAllRecordsPaginated: async (req, res) => {
+  try {
+    let {
+      employee_id,
+      start_date,
+      end_date,
+      page = 1,
+      page_limit = 20,
+    } = req.body;
+
+    page = parseInt(page, 10);
+    if (isNaN(page) || page < 1) page = 1;
+
+    page_limit = parseInt(page_limit, 10);
+    if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+    const filtersWithPaging = {
+      employee_id,
+      start_date,
+      end_date,
+      limit: page_limit,
+      offset: (page - 1) * page_limit,
+    };
+
+    const filtersForCount = { employee_id, start_date, end_date };
+
+    const [records, total] = await Promise.all([
+      EmployeeDailySalary.findAllPaginated(filtersWithPaging),
+      EmployeeDailySalary.countAll(filtersForCount),
+    ]);
+
+    const totalPages = Math.ceil(total / page_limit);
+
+    return res.status(200).json({
+      success: true,
+      data: records,
+      meta: {
+        page,
+        page_limit,
+        total_records: total,
+        total_pages: totalPages,
+        filters_applied: { employee_id, start_date, end_date },
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message,
+    });
+  }
+},
+getCurrentWeekSummaryPaginated: async (req, res) => {
+  try {
+    let { page = 1, page_limit = 20 } = req.body;
+
+    page = parseInt(page, 10);
+    if (isNaN(page) || page < 1) page = 1;
+
+    page_limit = parseInt(page_limit, 10);
+    if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+    const today = new Date();
+    const day = today.getDay();
+    const diffToMonday = (day + 6) % 7;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - diffToMonday);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+
+    const toDateStr = (d) => d.toISOString().slice(0, 10);
+    const week_start = toDateStr(monday);
+    const week_end = toDateStr(sunday);
+
+    const [rows, total] = await Promise.all([
+      EmployeeDailySalary.getWithEmployeeByDateRangePaginated(
+        week_start,
+        week_end,
+        page_limit,
+        (page - 1) * page_limit
+      ),
+      EmployeeDailySalary.countCurrentWeek(week_start, week_end),
+    ]);
+
+    const map = new Map();
+    for (const row of rows) {
+      const key = row.employee_id;
+      if (!map.has(key)) {
+        map.set(key, {
+          employee_id: row.employee_id,
+          employee_name: row.employee_name,
+          records: [],
+          summary: { total_hours: 0, total_amount: 0 },
+        });
+      }
+      const emp = map.get(key);
+      emp.records.push({
+        id: row.id,
+        work_date: row.work_date,
+        day_part: row.day_part,
+        full_days: row.full_days,
+        extra_hours: row.extra_hours,
+        total_hours: Number(row.total_hours),
+        amount_for_day: Number(row.amount_for_day),
+        remarks: row.remarks,
+      });
+      emp.summary.total_hours += Number(row.total_hours);
+      emp.summary.total_amount += Number(row.amount_for_day);
+    }
+
+    const data = Array.from(map.values()).map((emp) => ({
+      ...emp,
+      summary: {
+        total_hours: Number(emp.summary.total_hours.toFixed(2)),
+        total_amount: Number(emp.summary.total_amount.toFixed(2)),
+      },
+    }));
+
+    const totalPages = Math.ceil(total / page_limit);
+
+    return res.status(200).json({
+      success: true,
+      week_start,
+      week_end,
+      data,
+      meta: {
+        page,
+        page_limit,
+        total_records: total,
+        total_pages: totalPages,
+      },
+    });
+  } catch (error) {
+    console.error('Error in getCurrentWeekSummaryPaginated:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message,
+    });
+  }
+},
+
 };
 
 module.exports = employeeDailySalaryController;

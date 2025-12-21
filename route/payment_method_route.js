@@ -22,6 +22,13 @@ router.post('/update', checkPermission(permission), paymentMethodController.upda
 // Delete payment method
 router.post('/delete', checkPermission(permission), paymentMethodController.delete);
 
+// NEW: get all paginated
+router.post(
+  '/getAllPaginated',
+  checkPermission(permission),
+  paymentMethodController.getAllPaginated
+);
+
 module.exports = router;
 
 

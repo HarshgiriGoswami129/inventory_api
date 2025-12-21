@@ -156,7 +156,39 @@ const StockHistory = {
 
     const [rows] = await db.query(query, values);
     return rows[0] || null;
-  }
+  },
+  countAll: async (filters = {}) => {
+    let query = 'SELECT COUNT(*) AS total FROM stock_history WHERE 1=1';
+    const values = [];
+
+    if (filters.item_code) {
+      query += ' AND item_code = ?';
+      values.push(filters.item_code);
+    }
+
+    if (filters.start_date) {
+      query += ' AND movement_date >= ?';
+      values.push(filters.start_date);
+    }
+
+    if (filters.end_date) {
+      query += ' AND movement_date <= ?';
+      values.push(filters.end_date);
+    }
+
+    if (filters.transaction_type) {
+      query += ' AND transaction_type = ?';
+      values.push(filters.transaction_type);
+    }
+
+    if (filters.invoice_type) {
+      query += ' AND invoice_type = ?';
+      values.push(filters.invoice_type);
+    }
+
+    const [rows] = await db.query(query, values);
+    return rows[0].total;
+  },
 };
 
 module.exports = StockHistory;

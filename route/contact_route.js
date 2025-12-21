@@ -19,6 +19,11 @@ router.post('/deleteContact', [authMiddleware, checkPermission('contacts')], con
 
 // Add this line after your existing routes
 router.post('/getAllContactCodes', [authMiddleware, checkPermission('contacts')], contactController.getAllContactCodes);
+router.post(
+  '/getAllContactPaginated',
+  [authMiddleware, checkPermission('contacts')],
+  contactController.getAllContactsPaginated
+);
 
 
 module.exports = router;

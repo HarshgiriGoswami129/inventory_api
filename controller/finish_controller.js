@@ -75,7 +75,45 @@ const finishesController = {
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
-  }
+  },
+  getFinishesPaginated: async (req, res) => {
+    try {
+      let { page, page_limit } = req.body;
+
+      page = parseInt(page, 10);
+      if (isNaN(page) || page < 1) {
+        page = 1;
+      }
+
+      page_limit = parseInt(page_limit, 10);
+      if (isNaN(page_limit) || page_limit <= 0) {
+        page_limit = 20;
+      }
+
+      const offset = (page - 1) * page_limit;
+
+      const [finishes, total] = await Promise.all([
+        Finishes.getPaginated(page_limit, offset),
+        Finishes.countAll()
+      ]);
+
+      const totalPages = Math.ceil(total / page_limit);
+
+      return res.status(200).json({
+        success: true,
+        data: finishes,
+        meta: {
+          page,
+          page_limit,
+          total_records: total,
+          total_pages: totalPages
+        }
+      });
+    } catch (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
 };
 
 module.exports = finishesController;

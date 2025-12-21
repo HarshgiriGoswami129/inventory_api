@@ -14,6 +14,11 @@ router.post('/getAllMaster', checkPermission(permission), masterController.getAl
 router.post('/updateMaster', checkPermission(permission), masterController.updateItem);
 router.post('/deleteMaster', checkPermission(permission), masterController.deleteItem);
 router.post('/getItemCodes', checkPermission(permission), masterController.getItemCodes);
+router.post(
+  '/getAllMasterPaginated',
+  checkPermission(permission),
+  masterController.getAllItemsPaginated
+);
 
 
 module.exports = router;

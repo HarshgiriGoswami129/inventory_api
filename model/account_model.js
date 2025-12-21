@@ -38,6 +38,19 @@ const Account = {
     const query = 'DELETE FROM accounts WHERE id = ?';
     const [result] = await db.query(query, [id]);
     return result.affectedRows;
+  },
+  findPaginated: async (limit, offset) => {
+    const [rows] = await db.query(
+      'SELECT * FROM accounts ORDER BY id DESC LIMIT ? OFFSET ?',
+      [limit, offset]
+    );
+    return rows;
+  },
+
+  // NEW: total count
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM accounts');
+    return rows[0].total;
   }
 };
 module.exports = Account;

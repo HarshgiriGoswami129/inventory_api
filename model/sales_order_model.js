@@ -130,6 +130,23 @@ const SalesOrder = {
     const [rows] = await db.query(query, [itemCode]);
     return rows[0];
   },
+  // NEW: paginated list
+  findPaginated: async (limit, offset) => {
+    const query = `
+      SELECT so.*, c.contact_name as customer_name
+      FROM sales_orders so
+      LEFT JOIN contacts c ON so.customer_id = c.id
+      ORDER BY so.id DESC
+      LIMIT ? OFFSET ?
+    `;
+    const [rows] = await db.query(query, [limit, offset]);
+    return rows;
+  },
+   // NEW: total count for pagination
+  countAll: async () => {
+    const [rows] = await db.query('SELECT COUNT(*) AS total FROM sales_orders');
+    return rows[0].total;
+  },
 };
 
 module.exports = SalesOrder;

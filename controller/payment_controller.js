@@ -69,6 +69,41 @@ deletePayment: async (req, res) => {
     res.status(500).json({ success: false, message: 'Server Error', error: error.message });
   }
 },
+ getAllPaymentsPaginated: async (req, res) => {
+    try {
+      let { page, page_limit } = req.body;
+
+      page = parseInt(page, 10);
+      if (isNaN(page) || page < 1) page = 1;
+
+      page_limit = parseInt(page_limit, 10);
+      if (isNaN(page_limit) || page_limit <= 0) page_limit = 20;
+
+      const offset = (page - 1) * page_limit;
+
+      const [payments, total] = await Promise.all([
+        Payment.findPaginated(page_limit, offset),
+        Payment.countAll()
+      ]);
+
+      const totalPages = Math.ceil(total / page_limit);
+
+      return res.status(200).json({
+        success: true,
+        data: payments,
+        meta: {
+          page,
+          page_limit,
+          total_records: total,
+          total_pages: totalPages
+        }
+      });
+    } catch (error) {
+      return res
+        .status(500)
+        .json({ success: false, message: 'Server Error', error: error.message });
+    }
+  },
 
 };
 module.exports = paymentController;
