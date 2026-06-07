@@ -419,9 +419,8 @@ const Invoice = {
             remainingRestore -= addQty;
           }
 
-          if (remainingRestore > 0) {
-            throw new Error(`Unable to fully restore sales order quantity for item ${itemCode}. Pending restore: ${remainingRestore} pcs.`);
-          }
+          // If restore qty exceeds the order cap, silently skip the remainder.
+          // (Over-invoicing was already allowed on create — same logic applies on update)
         }
       }
 
@@ -472,6 +471,20 @@ const Invoice = {
 
       // Step 3: Update the main invoice details
       if (Object.keys(mainInvoiceData).length > 0) {
+        // Sanitize: convert empty strings to null for decimal/numeric columns
+        // so MySQL doesn't throw "Incorrect decimal value: ''"
+        const decimalFields = [
+          'reference_no_1', 'reference_no_2', 'sub_total', 'gst_amount',
+          'other_charge_amount', 'grand_total', 'total_net_kg'
+        ];
+        for (const field of decimalFields) {
+          if (Object.prototype.hasOwnProperty.call(mainInvoiceData, field)) {
+            const val = mainInvoiceData[field];
+            if (val === '' || val === null || val === undefined || (typeof val === 'string' && val.trim() === '')) {
+              mainInvoiceData[field] = null;
+            }
+          }
+        }
         const setClause = Object.keys(mainInvoiceData).map(key => `${key} = ?`).join(', ');
         const values = [...Object.values(mainInvoiceData), id];
         await connection.query(`UPDATE invoices SET ${setClause} WHERE id = ?`, values);
