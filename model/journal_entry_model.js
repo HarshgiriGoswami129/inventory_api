@@ -26,55 +26,64 @@ const JournalEntryModel = {
     return await JournalEntryModel.getById(result.insertId);
   },
 
-  // Get all journal entries with optional filters
+  // Get all journal entries with optional filters + running_balance per row
   getAll: async (filters = {}) => {
-    let query = `
-      SELECT 
-        je.*,
-        pm.name as method_name,
-        jet.name as entry_type_name
-      FROM journal_entries je
-      LEFT JOIN payment_methods pm ON je.method_id = pm.id
-      LEFT JOIN journal_entry_types jet ON je.entry_type_id = jet.id
-      WHERE 1=1
-    `;
-    const params = [];
+    // Inner query: calculate running_balance for ALL entries in this ledger type
+    // so that balance is always correct even when other filters are applied.
+    const innerParams = [filters.entry_type_id];
 
-    // Filter by entry type (REQUIRED for user access control)
-    if (filters.entry_type_id) {
-      query += ' AND je.entry_type_id = ?';
-      params.push(filters.entry_type_id);
-    }
+    // Outer filters (search, type, date) applied AFTER running_balance is computed
+    let outerWhere = 'WHERE 1=1';
+    const outerParams = [];
 
     if (filters.search) {
-      query += ' AND (je.customer_name LIKE ? OR pm.name LIKE ? OR je.notes LIKE ? OR je.note_1 LIKE ? OR je.note_2 LIKE ? OR je.note_3 LIKE ? OR je.note_4 LIKE ?)';
-      const searchTerm = `%${filters.search}%`;
-      params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
+      outerWhere += ' AND (sub.customer_name LIKE ? OR sub.method_name LIKE ? OR sub.notes LIKE ? OR sub.note_1 LIKE ? OR sub.note_3 LIKE ? OR sub.note_4 LIKE ?)';
+      const s = `%${filters.search}%`;
+      outerParams.push(s, s, s, s, s, s);
     }
-
     if (filters.type) {
-      query += ' AND je.type = ?';
-      params.push(filters.type);
+      outerWhere += ' AND sub.type = ?';
+      outerParams.push(filters.type);
     }
-
     if (filters.startDate) {
-      query += ' AND je.date >= ?';
-      params.push(filters.startDate);
+      outerWhere += ' AND sub.date >= ?';
+      outerParams.push(filters.startDate);
     }
-
     if (filters.endDate) {
-      query += ' AND je.date <= ?';
-      params.push(filters.endDate);
+      outerWhere += ' AND sub.date <= ?';
+      outerParams.push(filters.endDate);
     }
 
-    query += ' ORDER BY je.date DESC, je.created_at DESC';
-
+    let limitSuffix = '';
+    const limitParams = [];
     if (filters.limit) {
-      query += ' LIMIT ?';
-      params.push(filters.limit);
+      limitSuffix = ' LIMIT ?';
+      limitParams.push(filters.limit);
     }
 
-    const [rows] = await db.query(query, params);
+    const query = `
+      SELECT * FROM (
+        SELECT
+          je.*,
+          pm.name  AS method_name,
+          jet.name AS entry_type_name,
+          SUM(CASE WHEN je.type = 'Receipt' THEN je.amount ELSE -je.amount END)
+            OVER (
+              PARTITION BY je.entry_type_id
+              ORDER BY je.date ASC, je.id ASC
+              ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS running_balance
+        FROM journal_entries je
+        LEFT JOIN payment_methods pm  ON je.method_id    = pm.id
+        LEFT JOIN journal_entry_types jet ON je.entry_type_id = jet.id
+        WHERE je.entry_type_id = ?
+      ) sub
+      ${outerWhere}
+      ORDER BY sub.date DESC, sub.created_at DESC
+      ${limitSuffix}
+    `;
+
+    const [rows] = await db.query(query, [...innerParams, ...outerParams, ...limitParams]);
     return rows;
   },
 
@@ -175,8 +184,8 @@ const JournalEntryModel = {
   getMetrics: async (filters = {}) => {
     let query = `
       SELECT 
-        COALESCE(SUM(CASE WHEN type = 'Receipt' THEN note_2 ELSE 0 END), 0) as total_receipts,
-        COALESCE(SUM(CASE WHEN type = 'Payment' THEN note_2 ELSE 0 END), 0) as total_payments
+        COALESCE(SUM(CASE WHEN type = 'Receipt' THEN amount ELSE 0 END), 0) as total_receipts,
+        COALESCE(SUM(CASE WHEN type = 'Payment' THEN amount ELSE 0 END), 0) as total_payments
       FROM journal_entries
       WHERE 1=1
     `;

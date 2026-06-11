@@ -106,7 +106,20 @@ const journalEntryController = {
       if (limit) filters.limit = parseInt(limit);
 
       const entries = await JournalEntryModel.getAll(filters);
-      res.status(200).json({ success: true, data: entries });
+
+      // Also return overall totals for this ledger (based on same entry_type_id + date filters)
+      const metricFilters = { entry_type_id };
+      if (startDate) metricFilters.startDate = startDate;
+      if (endDate) metricFilters.endDate = endDate;
+      const metrics = await JournalEntryModel.getMetrics(metricFilters);
+
+      res.status(200).json({
+        success: true,
+        total_receipts: metrics.total_receipts,
+        total_payments: metrics.total_payments,
+        remaining_balance: metrics.remaining_balance,
+        data: entries
+      });
     } catch (error) {
       console.error('Error in getAll journal entries:', error);
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
