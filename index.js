@@ -7,7 +7,8 @@ const db = require('./config/db'); // Import the database pool
 const userRoutes = require('./route/user_route');
 const bodyParser = require('body-parser');
 
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 
 // FIXED CORS IMPLEMENTATION
 
