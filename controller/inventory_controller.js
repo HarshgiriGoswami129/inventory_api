@@ -160,8 +160,11 @@ const inventoryController = {
       const createdBy = req.user.id;
       const { item_code, user, stock_quantity, rate_adjustment, ...otherData } = req.body;
 
-      // Combine item_code and user for a unique reference if needed
-      const code_user = item_code + (user || '');
+      // Combine item_code, user, and finish for a unique reference per finish
+      const cleanFinish = otherData.finish ? String(otherData.finish).trim().replace(/\s+/g, '') : '';
+      const code_user = cleanFinish
+        ? `${item_code}${user || ''}_${cleanFinish}`
+        : item_code + (user || '');
 
       // Store the initial base rate (never changes unless explicitly edited later)
       const hasBaseRateInput = Object.prototype.hasOwnProperty.call(req.body, 'base_rate_pcs');

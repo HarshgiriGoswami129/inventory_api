@@ -97,13 +97,13 @@ const SalesOrder = {
 
   getValidCodeUserList: async () => {
     const query = `
-      SELECT DISTINCT i.code_user, i.user, c.contact_name, c.code, i.item_code
+      SELECT DISTINCT CONCAT(i.item_code, i.user) as code_user, i.user, c.contact_name, c.code, i.item_code
       FROM inventory_items i
       INNER JOIN contacts c ON i.user = c.code
       WHERE c.type = 'Customer'
       AND i.code_user IS NOT NULL
       AND i.code_user != ''
-      ORDER BY i.code_user ASC
+      ORDER BY code_user ASC
     `;
     const [rows] = await db.query(query);
     return rows;
@@ -111,7 +111,7 @@ const SalesOrder = {
 
   getValidCodeUserListForSalesInvoices: async () => {
     const query = `
-      SELECT DISTINCT i.code_user, i.user, c.contact_name, c.code, i.item_code
+      SELECT DISTINCT CONCAT(i.item_code, i.user) as code_user, i.user, c.contact_name, c.code, i.item_code
       FROM inventory_items i
       INNER JOIN contacts c ON i.user = c.code
       INNER JOIN sales_orders so ON so.item_code = i.item_code
@@ -123,7 +123,7 @@ const SalesOrder = {
         AND i.code_user IS NOT NULL
         AND i.code_user != ''
         AND so.quantity_pcs > 0
-      ORDER BY i.code_user ASC
+      ORDER BY code_user ASC
     `;
     const [rows] = await db.query(query);
     return rows;
@@ -131,13 +131,13 @@ const SalesOrder = {
 
   getValidCodeUserListForSuppliers: async () => {
     const query = `
-      SELECT DISTINCT i.code_user, user,i.item_code
+      SELECT DISTINCT CONCAT(i.item_code, i.user) as code_user, user, i.item_code
       FROM inventory_items i
       INNER JOIN contacts c ON i.user = c.code
       WHERE c.type = 'Supplier'
       AND i.code_user IS NOT NULL
       AND i.code_user != ''
-      ORDER BY i.code_user ASC
+      ORDER BY code_user ASC
     `;
     const [rows] = await db.query(query);
     return rows.map(row => ({ code_user: row.code_user, user: row.user, item_code: row.item_code }));
@@ -158,10 +158,11 @@ const SalesOrder = {
         i.rate_adjustment,
         i.base_rate_pcs
       FROM inventory_items i
-      WHERE i.code_user = ?
+      WHERE i.code_user = ? OR i.code_user LIKE CONCAT(?, '_%')
+      ORDER BY i.id DESC
       LIMIT 1
     `;
-    const [rows] = await db.query(query, [codeUser]);
+    const [rows] = await db.query(query, [codeUser, codeUser]);
     return rows[0] || null;
   },
 
