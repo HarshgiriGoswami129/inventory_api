@@ -265,6 +265,15 @@ const inventoryController = {
 
       normalizeOrderModeFields(itemData);
 
+      // Keep code_user in sync with item_code, user, and finish
+      const finalItemCode = itemData.item_code || oldRecord.item_code;
+      const finalUser = itemData.user || oldRecord.user;
+      const finalFinish = itemData.finish !== undefined ? itemData.finish : oldRecord.finish;
+      const cleanFinish = finalFinish ? String(finalFinish).trim().replace(/\s+/g, '') : '';
+      itemData.code_user = cleanFinish
+        ? `${finalItemCode}${finalUser || ''}_${cleanFinish}`
+        : `${finalItemCode}${finalUser || ''}`;
+
       applyRateFieldsForExistingItemUpdate(itemData, oldRecord);
 
       const affectedRows = await InventoryItem.update(id, itemData);
@@ -322,6 +331,14 @@ const inventoryController = {
       for (const itemData of items) {
         const { id, ...fieldsToUpdate } = itemData;
 
+        // Clean out frontend-only UI fields before SQL query
+        delete fieldsToUpdate.rateAdjustmentDisplay;
+        delete fieldsToUpdate.rate_adjustment_display;
+        delete fieldsToUpdate.originalId;
+        delete fieldsToUpdate.isNew;
+        delete fieldsToUpdate.actions;
+        delete fieldsToUpdate.number;
+
         // No id = new record, create it
         if (!id) {
           try {
@@ -353,15 +370,25 @@ const inventoryController = {
         try {
           normalizeOrderModeFields(fieldsToUpdate);
 
+          const oldRecord = await InventoryItem.findById(id);
+          if (!oldRecord) {
+            failed.push({ id, message: 'Item not found' });
+            continue;
+          }
+
+          // Keep code_user in sync with item_code, user, and finish
+          const finalItemCode = fieldsToUpdate.item_code || oldRecord.item_code;
+          const finalUser = fieldsToUpdate.user || oldRecord.user;
+          const finalFinish = fieldsToUpdate.finish !== undefined ? fieldsToUpdate.finish : oldRecord.finish;
+          const cleanFinish = finalFinish ? String(finalFinish).trim().replace(/\s+/g, '') : '';
+          fieldsToUpdate.code_user = cleanFinish
+            ? `${finalItemCode}${finalUser || ''}_${cleanFinish}`
+            : `${finalItemCode}${finalUser || ''}`;
+
           if (
             Object.prototype.hasOwnProperty.call(itemData, 'rate_adjustment') ||
             Object.prototype.hasOwnProperty.call(itemData, 'base_rate_pcs')
           ) {
-            const oldRecord = await InventoryItem.findById(id);
-            if (!oldRecord) {
-              failed.push({ id, message: 'Item not found' });
-              continue;
-            }
             applyRateFieldsForExistingItemUpdate(fieldsToUpdate, oldRecord);
           }
 
