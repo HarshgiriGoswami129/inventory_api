@@ -158,7 +158,7 @@ const journalEntryController = {
   // Update journal entry
   update: async (req, res) => {
     try {
-      const { id, entry_type_id, date, type, customer_name, method_id, amount, notes, note_1, note_2, note_3, note_4 } = req.body;
+      const { id, entry_type_id, date, type, customer_name, customer, contact_id, method_id, method, payment_method, amount, notes, note_1, note_2, note_3, note_4 } = req.body;
       const user_id = req.user?.id;
 
       // Handle file upload
@@ -202,8 +202,23 @@ const journalEntryController = {
       if (entry_type_id !== undefined) updateData.entry_type_id = parseInt(entry_type_id);
       if (date !== undefined) updateData.date = date;
       if (type !== undefined) updateData.type = type;
-      if (customer_name !== undefined) updateData.customer_name = customer_name.trim();
-      if (method_id !== undefined) updateData.method_id = parseInt(method_id);
+      if (customer_name !== undefined || customer !== undefined) {
+        const custVal = customer_name || (typeof customer === 'object' ? (customer.label || customer.contact_name) : customer);
+        if (custVal) updateData.customer_name = String(custVal).trim();
+      }
+      if (contact_id !== undefined || (typeof customer === 'object' && customer?.id)) {
+        updateData.contact_id = contact_id || customer?.id;
+      }
+      if (method_id !== undefined || method !== undefined || payment_method !== undefined) {
+        const mVal = method_id || (typeof method === 'object' ? (method.id || method.value) : method) || payment_method;
+        if (mVal !== undefined) {
+          const parsed = parseInt(mVal);
+          if (!isNaN(parsed)) {
+            updateData.method_id = parsed;
+          }
+          updateData.payment_method = typeof mVal === 'object' ? (mVal.label || mVal.value) : String(mVal);
+        }
+      }
       if (amount !== undefined) updateData.amount = parseFloat(amount);
       if (notes !== undefined) updateData.notes = notes || null;
       if (note_1 !== undefined) updateData.note_1 = note_1 || null;
