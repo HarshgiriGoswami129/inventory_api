@@ -142,33 +142,44 @@ const SalesInvoice = {
       return [];
     }
 
-    // Query 2: Get the single description from inventory_items using the provided code_user
+    // Query 2: Get description, pic_or_kg, kg_dzn, empty_wt, actual_wt from inventory_items using code_user or fallback item_code
     const descriptionQuery = `
-    SELECT description,pic_or_kg,kg_dzn,
-      empty_wt,
-      actual_wt 
-    FROM inventory_items 
-    WHERE code_user = ? 
-    LIMIT 1
-  `;
-    const [inventoryRows] = await db.query(descriptionQuery, [customerId]);
+      SELECT description, pic_or_kg, kg_dzn, empty_wt, actual_wt 
+      FROM inventory_items 
+      WHERE code_user = ? 
+         OR code_user LIKE CONCAT(?, '_%') 
+         OR CONCAT(item_code, user) = ? 
+         OR code_user LIKE CONCAT(?, '%')
+         OR item_code = ?
+      LIMIT 1
+    `;
+    const searchCode = code_user || customerId || "";
+    const cleanItemCode = searchCode.replace(/[^A-Za-z0-9]/g, "").substring(0, 7);
 
-    // Get the description from the result, or set it to null if nothing was found.
+    const [inventoryRows] = await db.query(descriptionQuery, [
+      searchCode,
+      searchCode,
+      searchCode,
+      searchCode,
+      cleanItemCode
+    ]);
+
+    // Get the description and weights from the result, or set to null if not found.
     const description = inventoryRows.length > 0 ? inventoryRows[0].description : null;
     const picKg = inventoryRows.length > 0 ? inventoryRows[0].pic_or_kg : null;
     const kg_dzn = inventoryRows.length > 0 ? inventoryRows[0].kg_dzn : null;
     const empty_wt = inventoryRows.length > 0 ? inventoryRows[0].empty_wt : null;
     const actual_wt = inventoryRows.length > 0 ? inventoryRows[0].actual_wt : null;
 
-    // Add the description to every sales order object we found earlier.
+    // Add the inventory details to every sales order object
     const finalResult = salesOrders.map(order => {
       return {
-        ...order, // This copies all the original fields from the order
+        ...order,
         description: description,
         pic_or_kg: picKg,
         kg_dzn: kg_dzn,
         empty_wt: empty_wt,
-        actual_wt: actual_wt // This adds the new description field
+        actual_wt: actual_wt
       };
     });
 
