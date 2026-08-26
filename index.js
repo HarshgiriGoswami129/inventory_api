@@ -51,6 +51,7 @@ const journalCustomerRoutes = require('./route/journal_customer_route');
 const backupRoutes = require('./route/backup_route');
 const databaseRoutes = require('./route/database_route');
 const salesLockRoutes = require('./route/sales_lock_route');
+const systemSettingsRoutes = require('./route/system_settings_route');
 
 const PORT = process.env.PORT || 3000;
 
@@ -85,6 +86,7 @@ app.use('/journal-entries/customers', journalCustomerRoutes);
 app.use('/backup', backupRoutes);
 app.use('/database', databaseRoutes);
 app.use('/sales-lock', salesLockRoutes);
+app.use('/system-settings', systemSettingsRoutes);
 
 // An async function to connect to the DB and then start the server
 const startServer = async () => {
