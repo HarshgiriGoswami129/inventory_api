@@ -52,6 +52,7 @@ const backupRoutes = require('./route/backup_route');
 const databaseRoutes = require('./route/database_route');
 const salesLockRoutes = require('./route/sales_lock_route');
 const systemSettingsRoutes = require('./route/system_settings_route');
+const boxRoutes = require('./route/box_route');
 
 const PORT = process.env.PORT || 3000;
 
@@ -74,6 +75,7 @@ app.use('/order-stock', orderStockRoutes);
 app.use('/invoicing', invoiceRoutes);
 app.use('/transport', transportRoutes);
 app.use('/carton', cartonInventoryRoutes);
+app.use('/box', boxRoutes);
 app.use('/pati', patiRoutes);
 app.use('/user-activity', userActivityRoutes);
 app.use('/employees', employeeRoutes);

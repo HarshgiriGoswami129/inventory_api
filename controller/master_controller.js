@@ -1,5 +1,6 @@
 const MasterItem = require('../model/master_model');
 const InventoryItem = require('../model/inventory_model');
+const BoxInventory = require('../model/box_inventory_model');
 const db = require('../config/db');
 const { logUserActivity } = require('../utils/activityLogger');
 const { compareChanges } = require('../utils/compareChanges');
@@ -35,21 +36,23 @@ const masterController = {
     try {
       const { page = 1, limit = 10, search = '' } = req.body;
 
-      // Fetch paginated master items and all cartons
-      const [result, cartons] = await Promise.all([
+      // Fetch paginated master items, all cartons, and all boxes
+      const [result, cartons, boxes] = await Promise.all([
         MasterItem.findAllPaginated({
           page: parseInt(page),
           limit: parseInt(limit),
           search: search || ''
         }),
-        MasterItem.findAllCorton()
+        MasterItem.findAllCorton(),
+        BoxInventory.findAll()
       ]);
 
       res.status(200).json({
         success: true,
         data: {
           masterItems: result.data,
-          cartonInventory: cartons
+          cartonInventory: cartons,
+          boxInventory: boxes
         },
         pagination: result.pagination
       });

@@ -100,6 +100,26 @@ const Invoice = {
         }
       }
 
+      // 4.1 Update box inventory (subtract total_boxes for each box item)
+      if (invoiceData.items && invoiceData.items.length > 0) {
+        const boxCounts = {};
+        for (const item of invoiceData.items) {
+          const boxName = item.box_name;
+          const totalBoxes = parseFloat(item.total_boxes || item.total_box || item.totalBox) || 0;
+          if (boxName && totalBoxes > 0) {
+            boxCounts[boxName] = (boxCounts[boxName] || 0) + totalBoxes;
+          }
+        }
+        for (const boxName in boxCounts) {
+          const countToSubtract = boxCounts[boxName];
+          const updateBoxQuery = `
+            UPDATE box_inventory
+            SET box_quantity = box_quantity - ?
+            WHERE box_name = ?`;
+          await connection.query(updateBoxQuery, [countToSubtract, boxName]);
+        }
+      }
+
       // 5. Update master stock (PCS & KG) and sales orders, and record stock history
       for (const item of invoiceData.items) {
         const { item_code, item_finish, total_pcs, net_kg } = item;
@@ -467,6 +487,38 @@ const Invoice = {
             mainInvoiceData.updated_by || null
           ]
         );
+      }
+
+      // 2.1) Adjust Box inventory by delta (new - old)
+      const oldBoxCounts = {};
+      for (const item of existingItems) {
+        const bName = item.box_name;
+        const bQty = parseFloat(item.total_boxes || item.total_box || item.totalBox) || 0;
+        if (bName && bQty > 0) {
+          oldBoxCounts[bName] = (oldBoxCounts[bName] || 0) + bQty;
+        }
+      }
+      const newBoxCounts = {};
+      for (const item of items) {
+        const bName = item.box_name;
+        const bQty = parseFloat(item.total_boxes || item.total_box || item.totalBox) || 0;
+        if (bName && bQty > 0) {
+          newBoxCounts[bName] = (newBoxCounts[bName] || 0) + bQty;
+        }
+      }
+      const allBoxNames = new Set([...Object.keys(oldBoxCounts), ...Object.keys(newBoxCounts)]);
+      for (const bName of allBoxNames) {
+        const oldQty = oldBoxCounts[bName] || 0;
+        const newQty = newBoxCounts[bName] || 0;
+        const delta = newQty - oldQty;
+        if (delta !== 0) {
+          const updateBoxQuery = `
+            UPDATE box_inventory 
+            SET box_quantity = box_quantity - ? 
+            WHERE box_name = ?
+          `;
+          await connection.query(updateBoxQuery, [delta, bName]);
+        }
       }
 
       // Step 3: Update the main invoice details
