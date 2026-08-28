@@ -142,9 +142,9 @@ const SalesInvoice = {
       return [];
     }
 
-    // Query 2: Get description, pic_or_kg, kg_dzn, empty_wt, actual_wt from inventory_items using code_user or fallback item_code
+    // Query 2: Get description, pic_or_kg, kg_dzn, empty_wt, actual_wt, box_name, shrink_name, ld_name from inventory_items using code_user or fallback item_code
     const descriptionQuery = `
-      SELECT description, pic_or_kg, kg_dzn, empty_wt, actual_wt 
+      SELECT description, pic_or_kg, kg_dzn, empty_wt, actual_wt, box_name, shrink_name, ld_name 
       FROM inventory_items 
       WHERE code_user = ? 
          OR code_user LIKE CONCAT(?, '_%') 
@@ -170,6 +170,9 @@ const SalesInvoice = {
     const kg_dzn = inventoryRows.length > 0 ? inventoryRows[0].kg_dzn : null;
     const empty_wt = inventoryRows.length > 0 ? inventoryRows[0].empty_wt : null;
     const actual_wt = inventoryRows.length > 0 ? inventoryRows[0].actual_wt : null;
+    const box_name = inventoryRows.length > 0 ? inventoryRows[0].box_name : null;
+    const shrink_name = inventoryRows.length > 0 ? inventoryRows[0].shrink_name : null;
+    const ld_name = inventoryRows.length > 0 ? inventoryRows[0].ld_name : null;
 
     // Add the inventory details to every sales order object
     const finalResult = salesOrders.map(order => {
@@ -179,7 +182,10 @@ const SalesInvoice = {
         pic_or_kg: picKg,
         kg_dzn: kg_dzn,
         empty_wt: empty_wt,
-        actual_wt: actual_wt
+        actual_wt: actual_wt,
+        box_name: box_name,
+        shrink_name: shrink_name,
+        ld_name: ld_name
       };
     });
 

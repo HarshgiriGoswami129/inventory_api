@@ -55,6 +55,27 @@ const PurchaseInvoice = {
               null,
               invoiceData.created_by || null
             ]);
+            // Also update box_inventory, shrink_inventory, or ld_inventory if code matches
+            const updateBoxQuery = `
+              UPDATE box_inventory 
+              SET box_quantity = box_quantity + ? 
+              WHERE box_name = ?
+            `;
+            await connection.query(updateBoxQuery, [totalPcs, item.code]);
+
+            const updateShrinkQuery = `
+              UPDATE shrink_inventory 
+              SET shrink_quantity = shrink_quantity + ? 
+              WHERE shrink_name = ?
+            `;
+            await connection.query(updateShrinkQuery, [totalKg || totalPcs, item.code]);
+
+            const updateLdQuery = `
+              UPDATE ld_inventory 
+              SET ld_quantity = ld_quantity + ? 
+              WHERE ld_name = ?
+            `;
+            await connection.query(updateLdQuery, [totalKg || totalPcs, item.code]);
           }
           // --- END OF NEW LOGIC ---
         }

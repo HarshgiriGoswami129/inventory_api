@@ -1,6 +1,8 @@
 const MasterItem = require('../model/master_model');
 const InventoryItem = require('../model/inventory_model');
 const BoxInventory = require('../model/box_inventory_model');
+const ShrinkInventory = require('../model/shrink_inventory_model');
+const LdInventory = require('../model/ld_inventory_model');
 const db = require('../config/db');
 const { logUserActivity } = require('../utils/activityLogger');
 const { compareChanges } = require('../utils/compareChanges');
@@ -36,15 +38,17 @@ const masterController = {
     try {
       const { page = 1, limit = 10, search = '' } = req.body;
 
-      // Fetch paginated master items, all cartons, and all boxes
-      const [result, cartons, boxes] = await Promise.all([
+      // Fetch paginated master items, cartons, boxes, shrink, and ld
+      const [result, cartons, boxes, shrinkItems, ldItems] = await Promise.all([
         MasterItem.findAllPaginated({
           page: parseInt(page),
           limit: parseInt(limit),
           search: search || ''
         }),
         MasterItem.findAllCorton(),
-        BoxInventory.findAll()
+        BoxInventory.findAll(),
+        ShrinkInventory.findAll(),
+        LdInventory.findAll()
       ]);
 
       res.status(200).json({
@@ -52,7 +56,9 @@ const masterController = {
         data: {
           masterItems: result.data,
           cartonInventory: cartons,
-          boxInventory: boxes
+          boxInventory: boxes,
+          shrinkInventory: shrinkItems,
+          ldInventory: ldItems
         },
         pagination: result.pagination
       });

@@ -40,7 +40,7 @@ const Invoice = {
           'invoice_id', 'item_code', 'item_description', 'item_size', 'item_finish',
           'pcs_per_box', 'total_boxes', 'extra_pcs', 'total_pcs', 'total_weight',
           'scrap_lb', 'total_rs', 'brass', 'kg_box', 'lb', 'pcs_rate', 'rate_kg', 'box_wt',
-          'tmp_wt', 'net_kg', 'box_name'
+          'tmp_wt', 'net_kg', 'box_name', 'shrink_name', 'ld_name'
         ];
         const itemQuery = `INSERT INTO invoice_items (${itemFields.join(', ')}) VALUES ?`;
         const itemValues = invoiceData.items.map(item => [
@@ -64,7 +64,9 @@ const Invoice = {
           item.box_wt || 0,
           item.tmp_wt || 0,
           item.net_kg || 0,
-          item.box_name || null
+          item.box_name || null,
+          item.shrink_name || null,
+          item.ld_name || null
         ]);
         await connection.query(itemQuery, [itemValues]);
       }
@@ -103,11 +105,24 @@ const Invoice = {
       // 4.1 Update box inventory (subtract total_boxes for each box item)
       if (invoiceData.items && invoiceData.items.length > 0) {
         const boxCounts = {};
+        const shrinkCounts = {};
+        const ldCounts = {};
+
         for (const item of invoiceData.items) {
           const boxName = item.box_name;
+          const shrinkName = item.shrink_name;
+          const ldName = item.ld_name;
           const totalBoxes = parseFloat(item.total_boxes || item.total_box || item.totalBox) || 0;
+          const totalPcs = parseFloat(item.total_pcs || item.totalPcs || ((parseFloat(item.pcs_per_box) || 0) * totalBoxes + (parseFloat(item.extra_pcs) || 0))) || 0;
+
           if (boxName && totalBoxes > 0) {
             boxCounts[boxName] = (boxCounts[boxName] || 0) + totalBoxes;
+          }
+          if (shrinkName && totalBoxes > 0) {
+            shrinkCounts[shrinkName] = (shrinkCounts[shrinkName] || 0) + totalBoxes;
+          }
+          if (ldName && totalPcs > 0) {
+            ldCounts[ldName] = (ldCounts[ldName] || 0) + totalPcs;
           }
         }
         for (const boxName in boxCounts) {
@@ -117,6 +132,22 @@ const Invoice = {
             SET box_quantity = box_quantity - ?
             WHERE box_name = ?`;
           await connection.query(updateBoxQuery, [countToSubtract, boxName]);
+        }
+        for (const shrinkName in shrinkCounts) {
+          const boxesToDeduct = shrinkCounts[shrinkName];
+          const updateShrinkQuery = `
+            UPDATE shrink_inventory
+            SET shrink_quantity = shrink_quantity - (? * COALESCE(shrink_wt, 1))
+            WHERE shrink_name = ?`;
+          await connection.query(updateShrinkQuery, [boxesToDeduct, shrinkName]);
+        }
+        for (const ldName in ldCounts) {
+          const pcsToDeduct = ldCounts[ldName];
+          const updateLdQuery = `
+            UPDATE ld_inventory
+            SET ld_quantity = ld_quantity - (? * COALESCE(ld_wt, 1))
+            WHERE ld_name = ?`;
+          await connection.query(updateLdQuery, [pcsToDeduct, ldName]);
         }
       }
 
@@ -489,23 +520,49 @@ const Invoice = {
         );
       }
 
-      // 2.1) Adjust Box inventory by delta (new - old)
+      // 2.1) Adjust Box, Shrink, and LD inventory by delta (new - old)
       const oldBoxCounts = {};
+      const oldShrinkCounts = {};
+      const oldLdCounts = {};
       for (const item of existingItems) {
         const bName = item.box_name;
+        const sName = item.shrink_name;
+        const lName = item.ld_name;
         const bQty = parseFloat(item.total_boxes || item.total_box || item.totalBox) || 0;
+        const pcsQty = parseFloat(item.total_pcs || item.totalPcs || ((parseFloat(item.pcs_per_box) || 0) * bQty + (parseFloat(item.extra_pcs) || 0))) || 0;
+
         if (bName && bQty > 0) {
           oldBoxCounts[bName] = (oldBoxCounts[bName] || 0) + bQty;
         }
+        if (sName && bQty > 0) {
+          oldShrinkCounts[sName] = (oldShrinkCounts[sName] || 0) + bQty;
+        }
+        if (lName && pcsQty > 0) {
+          oldLdCounts[lName] = (oldLdCounts[lName] || 0) + pcsQty;
+        }
       }
+
       const newBoxCounts = {};
+      const newShrinkCounts = {};
+      const newLdCounts = {};
       for (const item of items) {
         const bName = item.box_name;
+        const sName = item.shrink_name;
+        const lName = item.ld_name;
         const bQty = parseFloat(item.total_boxes || item.total_box || item.totalBox) || 0;
+        const pcsQty = parseFloat(item.total_pcs || item.totalPcs || ((parseFloat(item.pcs_per_box) || 0) * bQty + (parseFloat(item.extra_pcs) || 0))) || 0;
+
         if (bName && bQty > 0) {
           newBoxCounts[bName] = (newBoxCounts[bName] || 0) + bQty;
         }
+        if (sName && bQty > 0) {
+          newShrinkCounts[sName] = (newShrinkCounts[sName] || 0) + bQty;
+        }
+        if (lName && pcsQty > 0) {
+          newLdCounts[lName] = (newLdCounts[lName] || 0) + pcsQty;
+        }
       }
+
       const allBoxNames = new Set([...Object.keys(oldBoxCounts), ...Object.keys(newBoxCounts)]);
       for (const bName of allBoxNames) {
         const oldQty = oldBoxCounts[bName] || 0;
@@ -518,6 +575,36 @@ const Invoice = {
             WHERE box_name = ?
           `;
           await connection.query(updateBoxQuery, [delta, bName]);
+        }
+      }
+
+      const allShrinkNames = new Set([...Object.keys(oldShrinkCounts), ...Object.keys(newShrinkCounts)]);
+      for (const sName of allShrinkNames) {
+        const oldQty = oldShrinkCounts[sName] || 0;
+        const newQty = newShrinkCounts[sName] || 0;
+        const delta = newQty - oldQty;
+        if (delta !== 0) {
+          const updateShrinkQuery = `
+            UPDATE shrink_inventory 
+            SET shrink_quantity = shrink_quantity - (? * COALESCE(shrink_wt, 1)) 
+            WHERE shrink_name = ?
+          `;
+          await connection.query(updateShrinkQuery, [delta, sName]);
+        }
+      }
+
+      const allLdNames = new Set([...Object.keys(oldLdCounts), ...Object.keys(newLdCounts)]);
+      for (const lName of allLdNames) {
+        const oldQty = oldLdCounts[lName] || 0;
+        const newQty = newLdCounts[lName] || 0;
+        const delta = newQty - oldQty;
+        if (delta !== 0) {
+          const updateLdQuery = `
+            UPDATE ld_inventory 
+            SET ld_quantity = ld_quantity - (? * COALESCE(ld_wt, 1)) 
+            WHERE ld_name = ?
+          `;
+          await connection.query(updateLdQuery, [delta, lName]);
         }
       }
 
