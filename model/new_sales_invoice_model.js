@@ -137,7 +137,7 @@ const Invoice = {
           const boxesToDeduct = shrinkCounts[shrinkName];
           const updateShrinkQuery = `
             UPDATE shrink_inventory
-            SET shrink_quantity = shrink_quantity - (? * COALESCE(shrink_wt, 1))
+            SET shrink_quantity = shrink_quantity - (? * COALESCE(shrink_wt, 0))
             WHERE shrink_name = ?`;
           await connection.query(updateShrinkQuery, [boxesToDeduct, shrinkName]);
         }
@@ -145,7 +145,7 @@ const Invoice = {
           const pcsToDeduct = ldCounts[ldName];
           const updateLdQuery = `
             UPDATE ld_inventory
-            SET ld_quantity = ld_quantity - (? * COALESCE(ld_wt, 1))
+            SET ld_quantity = ld_quantity - (? * COALESCE(ld_wt, 0))
             WHERE ld_name = ?`;
           await connection.query(updateLdQuery, [pcsToDeduct, ldName]);
         }
@@ -586,7 +586,7 @@ const Invoice = {
         if (delta !== 0) {
           const updateShrinkQuery = `
             UPDATE shrink_inventory 
-            SET shrink_quantity = shrink_quantity - (? * COALESCE(shrink_wt, 1)) 
+            SET shrink_quantity = shrink_quantity - (? * COALESCE(shrink_wt, 0)) 
             WHERE shrink_name = ?
           `;
           await connection.query(updateShrinkQuery, [delta, sName]);
@@ -601,7 +601,7 @@ const Invoice = {
         if (delta !== 0) {
           const updateLdQuery = `
             UPDATE ld_inventory 
-            SET ld_quantity = ld_quantity - (? * COALESCE(ld_wt, 1)) 
+            SET ld_quantity = ld_quantity - (? * COALESCE(ld_wt, 0)) 
             WHERE ld_name = ?
           `;
           await connection.query(updateLdQuery, [delta, lName]);

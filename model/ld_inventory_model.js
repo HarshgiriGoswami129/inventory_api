@@ -9,13 +9,20 @@ const LdInventory = {
           id INT AUTO_INCREMENT PRIMARY KEY,
           ld_name VARCHAR(255) NOT NULL,
           ld_quantity DECIMAL(12,4) DEFAULT 0,
-          ld_wt DECIMAL(10,4) DEFAULT 0,
+          ld_wt DECIMAL(10,6) DEFAULT 0,
+          kg_dzn DECIMAL(10,4) DEFAULT 0,
           created_by INT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         );
       `;
       await db.query(createQuery);
+      // Ensure kg_dzn column exists if table already existed
+      try {
+        await db.query('ALTER TABLE ld_inventory ADD COLUMN kg_dzn DECIMAL(10,4) DEFAULT 0');
+      } catch (e) {
+        // Ignore column exists error
+      }
     } catch (err) {
       console.error('Error initializing ld_inventory table:', err);
     }
@@ -23,15 +30,18 @@ const LdInventory = {
 
   create: async (ldData) => {
     await LdInventory.initTable();
-    const { ld_name, ld_quantity, ld_wt, created_by } = ldData;
-    const query = 'INSERT INTO ld_inventory (ld_name, ld_quantity, ld_wt, created_by) VALUES (?, ?, ?, ?)';
-    const [result] = await db.query(query, [ld_name, ld_quantity || 0, ld_wt || 0, created_by || null]);
-    return { id: result.insertId, ...ldData };
+    const { ld_name, ld_quantity, ld_wt, kg_dzn, created_by } = ldData;
+    const kgDznVal = parseFloat(kg_dzn) || (parseFloat(ld_wt) ? parseFloat(ld_wt) * 12 : 0);
+    const unitWtVal = kgDznVal > 0 ? kgDznVal / 12 : (parseFloat(ld_wt) || 0);
+
+    const query = 'INSERT INTO ld_inventory (ld_name, ld_quantity, ld_wt, kg_dzn, created_by) VALUES (?, ?, ?, ?, ?)';
+    const [result] = await db.query(query, [ld_name, parseFloat(ld_quantity) || 0, unitWtVal, kgDznVal, created_by || null]);
+    return { id: result.insertId, ld_name, ld_quantity, ld_wt: unitWtVal, kg_dzn: kgDznVal };
   },
 
   findAllLdNames: async () => {
     await LdInventory.initTable();
-    const [rows] = await db.query('SELECT ld_name, ld_wt, ld_quantity FROM ld_inventory');
+    const [rows] = await db.query('SELECT ld_name, ld_wt, ld_quantity, kg_dzn FROM ld_inventory');
     return rows;
   },
 
@@ -49,9 +59,12 @@ const LdInventory = {
 
   update: async (id, ldData) => {
     await LdInventory.initTable();
-    const { ld_name, ld_quantity, ld_wt } = ldData;
-    const query = 'UPDATE ld_inventory SET ld_name = ?, ld_quantity = ?, ld_wt = ? WHERE id = ?';
-    const [result] = await db.query(query, [ld_name, ld_quantity || 0, ld_wt || 0, id]);
+    const { ld_name, ld_quantity, ld_wt, kg_dzn } = ldData;
+    const kgDznVal = parseFloat(kg_dzn) || (parseFloat(ld_wt) ? parseFloat(ld_wt) * 12 : 0);
+    const unitWtVal = kgDznVal > 0 ? kgDznVal / 12 : (parseFloat(ld_wt) || 0);
+
+    const query = 'UPDATE ld_inventory SET ld_name = ?, ld_quantity = ?, ld_wt = ?, kg_dzn = ? WHERE id = ?';
+    const [result] = await db.query(query, [ld_name, parseFloat(ld_quantity) || 0, unitWtVal, kgDznVal, id]);
     return result.affectedRows;
   },
 
