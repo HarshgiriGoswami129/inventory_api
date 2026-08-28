@@ -1,6 +1,21 @@
 const db = require('../config/db');
+
 const InventoryItem = {
+  initColumns: async () => {
+    try {
+      await db.query('ALTER TABLE inventory_items ADD COLUMN shrink_name VARCHAR(255) NULL');
+    } catch (e) {
+      // Column already exists
+    }
+    try {
+      await db.query('ALTER TABLE inventory_items ADD COLUMN ld_name VARCHAR(255) NULL');
+    } catch (e) {
+      // Column already exists
+    }
+  },
+
   create: async (itemData) => {
+    await InventoryItem.initColumns();
     const columns = Object.keys(itemData);
     const values = Object.values(itemData);
     const placeholders = columns.map(() => '?').join(', ');
