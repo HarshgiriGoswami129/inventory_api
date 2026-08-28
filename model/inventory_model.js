@@ -3,6 +3,11 @@ const db = require('../config/db');
 const InventoryItem = {
   initColumns: async () => {
     try {
+      await db.query('ALTER TABLE inventory_items ADD COLUMN box_name VARCHAR(255) NULL');
+    } catch (e) {
+      // Column already exists
+    }
+    try {
       await db.query('ALTER TABLE inventory_items ADD COLUMN shrink_name VARCHAR(255) NULL');
     } catch (e) {
       // Column already exists
@@ -37,6 +42,7 @@ const InventoryItem = {
 
   // Paginated search with multi-term support
   findAllPaginated: async ({ page = 1, limit = 10, search = '' }) => {
+    await InventoryItem.initColumns();
     const offset = (page - 1) * limit;
 
     let whereConditions = [];
