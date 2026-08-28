@@ -16,12 +16,18 @@ const InventoryItem = {
 
   create: async (itemData) => {
     await InventoryItem.initColumns();
-    const columns = Object.keys(itemData);
-    const values = Object.values(itemData);
+    const cleanData = { ...itemData };
+    delete cleanData.id;
+    delete cleanData.originalId;
+    delete cleanData.rate_adjustment_display;
+    delete cleanData.order_per_pics_kg;
+
+    const columns = Object.keys(cleanData);
+    const values = Object.values(cleanData);
     const placeholders = columns.map(() => '?').join(', ');
     const query = `INSERT INTO inventory_items (${columns.join(', ')}) VALUES (${placeholders})`;
     const [result] = await db.query(query, values);
-    return { id: result.insertId, ...itemData };
+    return { id: result.insertId, ...cleanData };
   },
 
   findAll: async () => {
@@ -79,8 +85,18 @@ const InventoryItem = {
   },
 
   update: async (id, itemData) => {
-    const updates = Object.keys(itemData).map(key => `${key} = ?`).join(', ');
-    const values = [...Object.values(itemData), id];
+    await InventoryItem.initColumns();
+    const cleanData = { ...itemData };
+    delete cleanData.id;
+    delete cleanData.originalId;
+    delete cleanData.rate_adjustment_display;
+    delete cleanData.order_per_pics_kg;
+
+    const keys = Object.keys(cleanData);
+    if (keys.length === 0) return 0;
+
+    const updates = keys.map(key => `${key} = ?`).join(', ');
+    const values = [...Object.values(cleanData), id];
     const query = `UPDATE inventory_items SET ${updates} WHERE id = ?`;
     const [result] = await db.query(query, values);
     return result.affectedRows;
