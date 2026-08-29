@@ -125,8 +125,28 @@ const masterController = {
   },
   getItemCodes: async (req, res) => {
     try {
-      const items = await MasterItem.findAllItemCodes();
-      res.status(200).json({ success: true, data: items });
+      const [masterItems, cartons, boxes, shrinkItems, ldItems] = await Promise.all([
+        MasterItem.findAllItemCodes(),
+        db.query('SELECT carton_name AS item_code, "Carton" AS description FROM carton_inventory'),
+        db.query('SELECT box_name AS item_code, "Box" AS description FROM box_inventory'),
+        db.query('SELECT shrink_name AS item_code, "Shrink" AS description, kg_dzn FROM shrink_inventory'),
+        db.query('SELECT ld_name AS item_code, "LD" AS description, kg_dzn FROM ld_inventory'),
+      ]);
+
+      const cartonRows = Array.isArray(cartons[0]) ? cartons[0] : [];
+      const boxRows = Array.isArray(boxes[0]) ? boxes[0] : [];
+      const shrinkRows = Array.isArray(shrinkItems[0]) ? shrinkItems[0] : [];
+      const ldRows = Array.isArray(ldItems[0]) ? ldItems[0] : [];
+
+      const combinedCodes = [
+        ...masterItems,
+        ...cartonRows,
+        ...boxRows,
+        ...shrinkRows,
+        ...ldRows,
+      ];
+
+      res.status(200).json({ success: true, data: combinedCodes });
     } catch (error) {
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }

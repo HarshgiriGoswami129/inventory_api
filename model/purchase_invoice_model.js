@@ -20,64 +20,112 @@ const PurchaseInvoice = {
           const itemQuery = 'INSERT INTO purchase_invoice_items SET ?';
           await connection.query(itemQuery, itemData);
 
-          // --- NEW STOCK UPDATE LOGIC ---
-          // 2. Check if there is a 'code' and a 'total_psc' / 'net_kg' to update master stock
-          //    - stock_quantity  : managed in PCS  (item.total_psc)
-          //    - stock_kg        : managed in KG   (item.net_kg or item.total_kg)
-          const totalPcs = parseFloat(item.total_psc) || 0;
-          const totalKg =
-            parseFloat(item.net_kg || item.total_kg) || 0; // support either net_kg or total_kg
+          // --- ENHANCED STOCK UPDATE & SUPPLIER MERGE LOGIC ---
+          const totalPcs = parseFloat(item.total_psc || item.quantity_pcs || item.pcs) || 0;
+          const totalKg = parseFloat(item.net_kg || item.total_kg || item.kg) || 0;
+          const itemCodeVal = item.code || item.item_code;
+          const userVal = userCode || invoiceData.code_user || item.user;
 
-          if (item.code && totalPcs > 0) {
+          if (itemCodeVal && (totalPcs > 0 || totalKg > 0)) {
+            // 1. Master Items Stock Update
             const stockUpdateQuery = `
               UPDATE master_items 
               SET stock_quantity = stock_quantity + ?, 
                   stock_kg       = COALESCE(stock_kg, 0) + ?
               WHERE item_code = ?
             `;
-            // This query will only affect a row if a matching item_code is found.
-            // If not found, it does nothing and the transaction continues.
-            await connection.query(stockUpdateQuery, [totalPcs, totalKg, item.code]);
+            await connection.query(stockUpdateQuery, [totalPcs, totalKg, itemCodeVal]);
 
-            // Insert stock history (CREDIT - stock in via purchase invoice)
-            const historyQuery = `
-              INSERT INTO stock_history
-              (item_code, transaction_type, invoice_type, invoice_number,
-               quantity_pcs, quantity_kg, movement_date, note, user_id)
-              VALUES (?, 'CREDIT', 'PURCHASE', ?, ?, ?, ?, ?, ?)
-            `;
-            await connection.query(historyQuery, [
-              item.code,
-              invoiceData.invoice_number || null,
-              totalPcs,
-              totalKg,
-              invoiceData.issue_date || new Date(),
-              null,
-              invoiceData.created_by || null
-            ]);
-            // Also update box_inventory, shrink_inventory, or ld_inventory if code matches
+            // 2. Stock History Insert (CREDIT - PURCHASE)
+            try {
+              const [mRows] = await connection.query(
+                'SELECT item_code FROM master_items WHERE item_code = ? LIMIT 1',
+                [itemCodeVal]
+              );
+              if (mRows.length > 0) {
+                const historyQuery = `
+                  INSERT INTO stock_history
+                  (item_code, transaction_type, invoice_type, invoice_number,
+                   quantity_pcs, quantity_kg, movement_date, note, user_id)
+                  VALUES (?, 'CREDIT', 'PURCHASE', ?, ?, ?, ?, ?, ?)
+                `;
+                await connection.query(historyQuery, [
+                  itemCodeVal,
+                  invoiceData.invoice_number || null,
+                  totalPcs,
+                  totalKg,
+                  invoiceData.issue_date || new Date(),
+                  null,
+                  invoiceData.created_by || null
+                ]);
+              }
+            } catch (historyErr) {
+              console.log('Stock history insert skipped (non-master item or FK constraint):', historyErr.message);
+            }
+
+            // 3. Box Inventory Update (Pcs)
             const updateBoxQuery = `
               UPDATE box_inventory 
               SET box_quantity = box_quantity + ? 
               WHERE box_name = ?
             `;
-            await connection.query(updateBoxQuery, [totalPcs, item.code]);
+            await connection.query(updateBoxQuery, [totalPcs > 0 ? totalPcs : totalKg, itemCodeVal]);
 
+            // 4. Shrink Inventory Update (KG)
             const updateShrinkQuery = `
               UPDATE shrink_inventory 
               SET shrink_quantity = shrink_quantity + ? 
               WHERE shrink_name = ?
             `;
-            await connection.query(updateShrinkQuery, [totalKg || totalPcs, item.code]);
+            await connection.query(updateShrinkQuery, [totalKg > 0 ? totalKg : totalPcs, itemCodeVal]);
 
+            // 5. LD Inventory Update (KG)
             const updateLdQuery = `
               UPDATE ld_inventory 
               SET ld_quantity = ld_quantity + ? 
               WHERE ld_name = ?
             `;
-            await connection.query(updateLdQuery, [totalKg || totalPcs, item.code]);
+            await connection.query(updateLdQuery, [totalKg > 0 ? totalKg : totalPcs, itemCodeVal]);
+
+            // 6. Supplier Inventory Items Sync (code_user merging)
+            if (userVal) {
+              const cleanFinish = item.finish ? String(item.finish).trim().replace(/\s+/g, '') : '';
+              const codeUser = cleanFinish ? `${itemCodeVal}${userVal}_${cleanFinish}` : `${itemCodeVal}${userVal}`;
+
+              const [invRows] = await connection.query(
+                'SELECT id FROM inventory_items WHERE code_user = ? OR (item_code = ? AND user = ?)',
+                [codeUser, itemCodeVal, userVal]
+              );
+
+              if (invRows.length > 0) {
+                const invId = invRows[0].id;
+                const updateInvQuery = `
+                  UPDATE inventory_items 
+                  SET stock_quantity = stock_quantity + ?,
+                      total_kg = total_kg + ?
+                  WHERE id = ?
+                `;
+                await connection.query(updateInvQuery, [totalPcs, totalKg, invId]);
+              } else {
+                const insertInvQuery = `
+                  INSERT INTO inventory_items 
+                  (item_code, user, code_user, finish, description, stock_quantity, total_kg, created_by)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `;
+                await connection.query(insertInvQuery, [
+                  itemCodeVal,
+                  userVal,
+                  codeUser,
+                  item.finish || null,
+                  item.description || null,
+                  totalPcs,
+                  totalKg,
+                  invoiceData.created_by || null
+                ]);
+              }
+            }
           }
-          // --- END OF NEW LOGIC ---
+          // --- END OF ENHANCED LOGIC ---
         }
       }
 
@@ -93,12 +141,39 @@ const PurchaseInvoice = {
       );
 
       // Update supplier's total amount if applicable
-      if (userCode && invoiceTotal > 0) {
-        const [contacts] = await connection.query('SELECT id FROM contacts WHERE code = ?', [userCode]);
-        if (contacts.length > 0) {
-          const contactId = contacts[0].id;
-          const updateSupplierQuery = 'UPDATE supplier_details SET total_amount = total_amount + ? WHERE contact_id = ?';
-          await connection.query(updateSupplierQuery, [invoiceTotal, contactId]);
+      const rawSupplierCode = userCode || invoiceData.code_user || invoiceData.supplier_code || invoiceData.user || '';
+      const supplierCodeVal = String(rawSupplierCode).trim();
+      const finalInvoiceTotal = calculatedTotal > 0 ? calculatedTotal : (parseFloat(invoiceTotal) || 0);
+
+      if (supplierCodeVal && finalInvoiceTotal > 0) {
+        try {
+          const baseCode = supplierCodeVal.split('_')[0];
+          const [contacts] = await connection.query(
+            'SELECT id FROM contacts WHERE code = ? OR code = ? OR contact_name = ? LIMIT 1',
+            [supplierCodeVal, baseCode, supplierCodeVal]
+          );
+
+          if (contacts.length > 0) {
+            const contactId = contacts[0].id;
+            const [supRows] = await connection.query(
+              'SELECT id FROM supplier_details WHERE contact_id = ? LIMIT 1',
+              [contactId]
+            );
+
+            if (supRows.length > 0) {
+              await connection.query(
+                'UPDATE supplier_details SET total_amount = COALESCE(total_amount, 0) + ? WHERE contact_id = ?',
+                [finalInvoiceTotal, contactId]
+              );
+            } else {
+              await connection.query(
+                'INSERT INTO supplier_details (contact_id, total_amount) VALUES (?, ?)',
+                [contactId, finalInvoiceTotal]
+              );
+            }
+          }
+        } catch (supplierErr) {
+          console.log('Supplier total update error:', supplierErr.message);
         }
       }
 
@@ -304,26 +379,30 @@ const PurchaseInvoice = {
         );
 
         // Insert stock history (DEBIT - stock out via undo purchase invoice)
-        // Only if stock_history table exists
         try {
-          await connection.query(
-            `INSERT INTO stock_history
-            (item_code, transaction_type, invoice_type, invoice_number,
-             quantity_pcs, quantity_kg, movement_date, note, user_id)
-            VALUES (?, 'DEBIT', 'PURCHASE', ?, ?, ?, ?, ?, ?)`,
-            [
-              itemCode,
-              invoice.invoice_number || null,
-              totalPcs,
-              totalKg,
-              new Date(),
-              undoReason || `Undo purchase invoice ${invoice.invoice_number || id}`,
-              undoByUserId || null
-            ]
+          const [mRows] = await connection.query(
+            'SELECT item_code FROM master_items WHERE item_code = ? LIMIT 1',
+            [itemCode]
           );
-        } catch (historyError) {
-          // If stock_history table doesn't exist, just log and continue
-          console.log('Note: stock_history table may not exist, skipping history insert');
+          if (mRows.length > 0) {
+            await connection.query(
+              `INSERT INTO stock_history
+              (item_code, transaction_type, invoice_type, invoice_number,
+               quantity_pcs, quantity_kg, movement_date, note, user_id)
+              VALUES (?, 'DEBIT', 'PURCHASE', ?, ?, ?, ?, ?, ?)`,
+              [
+                itemCode,
+                invoice.invoice_number || null,
+                totalPcs,
+                totalKg,
+                new Date(),
+                undoReason || `Undo purchase invoice ${invoice.invoice_number || id}`,
+                undoByUserId || null
+              ]
+            );
+          }
+        } catch (historyErr) {
+          console.log('Stock history undo insert skipped:', historyErr.message);
         }
       }
 
@@ -380,7 +459,7 @@ const PurchaseInvoice = {
 
   getDetailsByCodeUser: async (codeUser) => {
     const query = `
-      SELECT scrap, labour, kg_dzn, total_kg, description, rate_pcs 
+      SELECT scrap, labour, kg_dzn, total_kg, description, rate_pcs, box_name, shrink_name, ld_name 
       FROM inventory_items 
       WHERE code_user = ? 
          OR code_user LIKE CONCAT(?, '_%') 

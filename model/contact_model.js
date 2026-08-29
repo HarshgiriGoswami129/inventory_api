@@ -77,7 +77,8 @@ const Contact = {
         SELECT
             c.*,
             cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
-            cd.place_of_supply, cd.reverse_charge, cd.type_of_registration, cd.total_amount,
+            cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
+            COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
             cd.notes, cd.payment, cd.date, cd.order_follow_up, cd.no_1, cd.no_2,
             sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
             COALESCE(
@@ -106,7 +107,8 @@ const Contact = {
         SELECT
             c.*,
             cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
-            cd.place_of_supply, cd.reverse_charge, cd.type_of_registration, cd.total_amount,
+            cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
+            COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
             cd.notes, cd.payment, cd.date, cd.order_follow_up, cd.no_1, cd.no_2,
             sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
             COALESCE(
@@ -207,7 +209,8 @@ const Contact = {
       // UPDATED query to select total_amount
       const [rows] = await connection.query(
         `SELECT c.*, cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
-     cd.place_of_supply, cd.reverse_charge, cd.type_of_registration, cd.total_amount,
+     cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
+     COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
      cd.notes, cd.payment, cd.date, cd.order_follow_up,cd.no_1,cd.no_2,
      sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date
      FROM contacts c
@@ -402,7 +405,8 @@ const Contact = {
       SELECT
         c.*,
         cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
-        cd.place_of_supply, cd.reverse_charge, cd.type_of_registration, cd.total_amount,
+        cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
+        COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
         cd.notes, cd.payment, cd.date, cd.order_follow_up, cd.no_1, cd.no_2,
         sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
         COALESCE(
