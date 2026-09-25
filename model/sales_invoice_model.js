@@ -175,19 +175,53 @@ const SalesInvoice = {
     const ld_name = inventoryRows.length > 0 ? inventoryRows[0].ld_name : null;
 
     // Add the inventory details to every sales order object
-    const finalResult = salesOrders.map(order => {
+    const finalResult = await Promise.all(salesOrders.map(async (order) => {
+      let orderBoxName = box_name;
+      let orderShrinkName = shrink_name;
+      let orderLdName = ld_name;
+      let orderDesc = description;
+      let orderPicKg = picKg;
+      let orderKgDzn = kg_dzn;
+      let orderEmptyWt = empty_wt;
+      let orderActualWt = actual_wt;
+
+      if (order.finish) {
+        const cleanFinish = String(order.finish).trim().replace(/\s+/g, '');
+        const specificCodeUser = `${searchCode}_${cleanFinish}`;
+        const [specificRows] = await db.query(
+          `SELECT description, pic_or_kg, kg_dzn, empty_wt, actual_wt, box_name, shrink_name, ld_name 
+           FROM inventory_items 
+           WHERE code_user = ? 
+              OR code_user LIKE CONCAT(?, '_%') 
+              OR (item_code = ? AND finish = ?)
+              OR (item_code = ? AND finish LIKE CONCAT('%', ?, '%'))
+           LIMIT 1`,
+          [specificCodeUser, specificCodeUser, cleanItemCode, order.finish, cleanItemCode, order.finish]
+        );
+        if (specificRows.length > 0) {
+          orderBoxName = specificRows[0].box_name || box_name;
+          orderShrinkName = specificRows[0].shrink_name || shrink_name;
+          orderLdName = specificRows[0].ld_name || ld_name;
+          if (specificRows[0].description) orderDesc = specificRows[0].description;
+          if (specificRows[0].pic_or_kg !== null) orderPicKg = specificRows[0].pic_or_kg;
+          if (specificRows[0].kg_dzn !== null) orderKgDzn = specificRows[0].kg_dzn;
+          if (specificRows[0].empty_wt !== null) orderEmptyWt = specificRows[0].empty_wt;
+          if (specificRows[0].actual_wt !== null) orderActualWt = specificRows[0].actual_wt;
+        }
+      }
+
       return {
         ...order,
-        description: description,
-        pic_or_kg: picKg,
-        kg_dzn: kg_dzn,
-        empty_wt: empty_wt,
-        actual_wt: actual_wt,
-        box_name: box_name,
-        shrink_name: shrink_name,
-        ld_name: ld_name
+        description: orderDesc,
+        pic_or_kg: orderPicKg,
+        kg_dzn: orderKgDzn,
+        empty_wt: orderEmptyWt,
+        actual_wt: orderActualWt,
+        box_name: orderBoxName,
+        shrink_name: orderShrinkName,
+        ld_name: orderLdName
       };
-    });
+    }));
 
     return finalResult;
   },
