@@ -1,7 +1,20 @@
 const db = require('../config/db'); // Assuming you have a db config file
 
 const Invoice = {
+  initColumns: async () => {
+    try {
+      await db.query('ALTER TABLE invoice_items ADD COLUMN box_name VARCHAR(255) NULL');
+    } catch (e) {}
+    try {
+      await db.query('ALTER TABLE invoice_items ADD COLUMN shrink_name VARCHAR(255) NULL');
+    } catch (e) {}
+    try {
+      await db.query('ALTER TABLE invoice_items ADD COLUMN ld_name VARCHAR(255) NULL');
+    } catch (e) {}
+  },
+
   create: async (invoiceData) => {
+    await Invoice.initColumns();
 
     const connection = await db.getConnection();
     try {
