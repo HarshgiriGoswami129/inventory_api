@@ -8,6 +8,7 @@ const upload = require('../middlewares/upload');
 router.post('/', [authMiddleware, checkPermission('receipts'), upload.single('image')], receiptController.createReceipt);
 router.post('/getAllReceipt', [authMiddleware, checkPermission('receipts')], receiptController.getAllReceipts);
 router.post('/updateReceipt', [authMiddleware, checkPermission('receipts'), upload.single('image')], receiptController.updateReceipt);
+router.post('/direct-supplier-transfer', [authMiddleware, checkPermission('receipts')], receiptController.createDirectSupplierTransfer);
 
 router.post('/deleteReceipt', [authMiddleware, checkPermission('receipts')], receiptController.deleteReceipt);
 

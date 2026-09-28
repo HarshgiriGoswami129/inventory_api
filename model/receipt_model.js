@@ -335,5 +335,164 @@ const Receipt = {
     };
   },
 
+  createDirectSupplierTransfer: async (transferData) => {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const {
+        date,
+        amount,
+        customer_id,
+        supplier_id,
+        account_type,
+        reference,
+        description,
+        note,
+        user_id,
+      } = transferData;
+
+      const transferAmount = parseFloat(amount) || 0;
+      if (!transferAmount || transferAmount <= 0) {
+        throw new Error("Amount must be greater than zero");
+      }
+      if (!customer_id) {
+        throw new Error("Customer is required");
+      }
+      if (!supplier_id) {
+        throw new Error("Supplier is required");
+      }
+
+      // Fetch customer & supplier info from contacts
+      const [customerRows] = await connection.query(
+        "SELECT id, contact_name, code FROM contacts WHERE id = ?",
+        [customer_id]
+      );
+      const [supplierRows] = await connection.query(
+        "SELECT id, contact_name, code FROM contacts WHERE id = ?",
+        [supplier_id]
+      );
+
+      const customerName =
+        customerRows[0]?.contact_name || `Customer #${customer_id}`;
+      const supplierName =
+        supplierRows[0]?.contact_name || `Supplier #${supplier_id}`;
+      const supplierCode = supplierRows[0]?.code;
+
+      const receiptDesc =
+        description && description.trim()
+          ? description.trim()
+          : `Direct Transfer to Supplier: ${supplierName}`;
+      const paymentDesc = `Direct Payment from Customer: ${customerName}`;
+      const txnRef = reference && reference.trim() ? reference.trim() : null;
+      const txnNote = note && note.trim() ? note.trim() : null;
+      const txnDate =
+        date && date.trim()
+          ? date.trim()
+          : new Date().toISOString().split("T")[0];
+
+      // Step 1: Insert into receipts (contact_id = customer_id, account_id = NULL)
+      const receiptQuery = `
+        INSERT INTO receipts (date, amount, contact_id, account_id, description, reference, note, user_id)
+        VALUES (?, ?, ?, NULL, ?, ?, ?, ?)
+      `;
+      const [receiptResult] = await connection.query(receiptQuery, [
+        txnDate,
+        transferAmount,
+        customer_id,
+        receiptDesc,
+        txnRef,
+        txnNote,
+        user_id || null,
+      ]);
+
+      // Step 2: Insert into payments (contact_id = supplier_id, account_id = NULL)
+      const paymentQuery = `
+        INSERT INTO payments (date, amount, contact_id, account_id, description, reference, note, user_id)
+        VALUES (?, ?, ?, NULL, ?, ?, ?, ?)
+      `;
+      const [paymentResult] = await connection.query(paymentQuery, [
+        txnDate,
+        transferAmount,
+        supplier_id,
+        paymentDesc,
+        txnRef,
+        txnNote,
+        user_id || null,
+      ]);
+
+      // Step 3: Update customer_details total_amount
+      await connection.query(
+        `UPDATE customer_details 
+         SET total_amount = COALESCE(total_amount, 0) - ? 
+         WHERE contact_id = ?`,
+        [transferAmount, customer_id]
+      );
+
+      // Optional: deduct from NO_1 or NO_2 if specified
+      if (account_type === "NO_1") {
+        await connection.query(
+          `UPDATE customer_details 
+           SET no_1 = COALESCE(no_1, 0) - ? 
+           WHERE contact_id = ?`,
+          [transferAmount, customer_id]
+        );
+      } else if (account_type === "NO_2") {
+        await connection.query(
+          `UPDATE customer_details 
+           SET no_2 = COALESCE(no_2, 0) - ? 
+           WHERE contact_id = ?`,
+          [transferAmount, customer_id]
+        );
+      }
+
+      // Step 4: Update supplier_details total_amount
+      await connection.query(
+        `UPDATE supplier_details 
+         SET total_amount = COALESCE(total_amount, 0) - ? 
+         WHERE contact_id = ?`,
+        [transferAmount, supplier_id]
+      );
+
+      // Step 5: FIFO deduction on Supplier's oldest unpaid purchase invoices
+      if (supplierCode) {
+        const [unpaidPIs] = await connection.query(
+          "SELECT id, balance_due FROM purchase_invoices WHERE user = ? AND balance_due > 0 ORDER BY id ASC FOR UPDATE",
+          [supplierCode]
+        );
+        let remaining = transferAmount;
+        for (const pi of unpaidPIs) {
+          if (remaining <= 0) break;
+          const piBalance = parseFloat(pi.balance_due) || 0;
+          const deduction = Math.min(remaining, piBalance);
+          await connection.query(
+            "UPDATE purchase_invoices SET balance_due = balance_due - ? WHERE id = ?",
+            [deduction, pi.id]
+          );
+          remaining -= deduction;
+        }
+      }
+
+      await connection.commit();
+      return {
+        success: true,
+        receipt_id: receiptResult.insertId,
+        payment_id: paymentResult.insertId,
+        amount: transferAmount,
+        customer_id,
+        customer_name: customerName,
+        supplier_id,
+        supplier_name: supplierName,
+        date: txnDate,
+        reference: txnRef,
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+
 };
 module.exports = Receipt;
