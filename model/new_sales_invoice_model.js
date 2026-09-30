@@ -144,9 +144,9 @@ const Invoice = {
           if (boxName && boxesNeeded > 0) {
             boxCounts[boxName] = (boxCounts[boxName] || 0) + boxesNeeded;
           }
-          // Shrink is calculated based on TOTAL PCS (same as LD)
-          if (shrinkName && totalPcs > 0) {
-            shrinkCounts[shrinkName] = (shrinkCounts[shrinkName] || 0) + totalPcs;
+          // Shrink is calculated based on BOXES (same as Box: total_boxes + 1 if extra_pcs > 0)
+          if (shrinkName && boxesNeeded > 0) {
+            shrinkCounts[shrinkName] = (shrinkCounts[shrinkName] || 0) + boxesNeeded;
           }
           if (ldName && totalPcs > 0) {
             ldCounts[ldName] = (ldCounts[ldName] || 0) + totalPcs;
@@ -161,12 +161,12 @@ const Invoice = {
           await connection.query(updateBoxQuery, [countToSubtract, boxName]);
         }
         for (const shrinkName in shrinkCounts) {
-          const pcsToDeduct = shrinkCounts[shrinkName];
+          const boxesToDeduct = shrinkCounts[shrinkName];
           const updateShrinkQuery = `
             UPDATE shrink_inventory
             SET shrink_quantity = shrink_quantity - (? * COALESCE(shrink_wt, 0))
             WHERE shrink_name = ?`;
-          await connection.query(updateShrinkQuery, [pcsToDeduct, shrinkName]);
+          await connection.query(updateShrinkQuery, [boxesToDeduct, shrinkName]);
         }
         for (const ldName in ldCounts) {
           const pcsToDeduct = ldCounts[ldName];
@@ -562,8 +562,8 @@ const Invoice = {
         if (bName && boxesNeeded > 0) {
           oldBoxCounts[bName] = (oldBoxCounts[bName] || 0) + boxesNeeded;
         }
-        if (sName && pcsQty > 0) {
-          oldShrinkCounts[sName] = (oldShrinkCounts[sName] || 0) + pcsQty;
+        if (sName && boxesNeeded > 0) {
+          oldShrinkCounts[sName] = (oldShrinkCounts[sName] || 0) + boxesNeeded;
         }
         if (lName && pcsQty > 0) {
           oldLdCounts[lName] = (oldLdCounts[lName] || 0) + pcsQty;
@@ -585,8 +585,8 @@ const Invoice = {
         if (bName && boxesNeeded > 0) {
           newBoxCounts[bName] = (newBoxCounts[bName] || 0) + boxesNeeded;
         }
-        if (sName && pcsQty > 0) {
-          newShrinkCounts[sName] = (newShrinkCounts[sName] || 0) + pcsQty;
+        if (sName && boxesNeeded > 0) {
+          newShrinkCounts[sName] = (newShrinkCounts[sName] || 0) + boxesNeeded;
         }
         if (lName && pcsQty > 0) {
           newLdCounts[lName] = (newLdCounts[lName] || 0) + pcsQty;
@@ -810,8 +810,8 @@ const Invoice = {
         if (boxName && boxesNeeded > 0) {
           boxCounts[boxName] = (boxCounts[boxName] || 0) + boxesNeeded;
         }
-        if (shrinkName && totalPcs > 0) {
-          shrinkCounts[shrinkName] = (shrinkCounts[shrinkName] || 0) + totalPcs;
+        if (shrinkName && boxesNeeded > 0) {
+          shrinkCounts[shrinkName] = (shrinkCounts[shrinkName] || 0) + boxesNeeded;
         }
         if (ldName && totalPcs > 0) {
           ldCounts[ldName] = (ldCounts[ldName] || 0) + totalPcs;
