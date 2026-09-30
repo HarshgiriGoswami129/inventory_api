@@ -135,13 +135,18 @@ const Invoice = {
           const shrinkName = item.shrink_name;
           const ldName = item.ld_name;
           const totalBoxes = parseFloat(item.total_boxes || item.total_box || item.totalBox) || 0;
-          const totalPcs = parseFloat(item.total_pcs || item.totalPcs || ((parseFloat(item.pcs_per_box) || 0) * totalBoxes + (parseFloat(item.extra_pcs) || 0))) || 0;
+          const extraPcs = parseFloat(item.extra_pcs || item.extraPcs) || 0;
+          const totalPcs = parseFloat(item.total_pcs || item.totalPcs || ((parseFloat(item.pcs_per_box) || 0) * totalBoxes + extraPcs)) || 0;
 
-          if (boxName && totalBoxes > 0) {
-            boxCounts[boxName] = (boxCounts[boxName] || 0) + totalBoxes;
+          // If extra_pcs > 0, need 1 extra box (e.g. 50 boxes + 5 extra pcs = 51 boxes)
+          const boxesNeeded = totalBoxes + (extraPcs > 0 ? 1 : 0);
+
+          if (boxName && boxesNeeded > 0) {
+            boxCounts[boxName] = (boxCounts[boxName] || 0) + boxesNeeded;
           }
-          if (shrinkName && totalBoxes > 0) {
-            shrinkCounts[shrinkName] = (shrinkCounts[shrinkName] || 0) + totalBoxes;
+          // Shrink is calculated based on TOTAL PCS (same as LD)
+          if (shrinkName && totalPcs > 0) {
+            shrinkCounts[shrinkName] = (shrinkCounts[shrinkName] || 0) + totalPcs;
           }
           if (ldName && totalPcs > 0) {
             ldCounts[ldName] = (ldCounts[ldName] || 0) + totalPcs;
@@ -156,12 +161,12 @@ const Invoice = {
           await connection.query(updateBoxQuery, [countToSubtract, boxName]);
         }
         for (const shrinkName in shrinkCounts) {
-          const boxesToDeduct = shrinkCounts[shrinkName];
+          const pcsToDeduct = shrinkCounts[shrinkName];
           const updateShrinkQuery = `
             UPDATE shrink_inventory
             SET shrink_quantity = shrink_quantity - (? * COALESCE(shrink_wt, 0))
             WHERE shrink_name = ?`;
-          await connection.query(updateShrinkQuery, [boxesToDeduct, shrinkName]);
+          await connection.query(updateShrinkQuery, [pcsToDeduct, shrinkName]);
         }
         for (const ldName in ldCounts) {
           const pcsToDeduct = ldCounts[ldName];
@@ -550,13 +555,15 @@ const Invoice = {
         const sName = item.shrink_name;
         const lName = item.ld_name;
         const bQty = parseFloat(item.total_boxes || item.total_box || item.totalBox) || 0;
-        const pcsQty = parseFloat(item.total_pcs || item.totalPcs || ((parseFloat(item.pcs_per_box) || 0) * bQty + (parseFloat(item.extra_pcs) || 0))) || 0;
+        const extraPcs = parseFloat(item.extra_pcs || item.extraPcs) || 0;
+        const boxesNeeded = bQty + (extraPcs > 0 ? 1 : 0);
+        const pcsQty = parseFloat(item.total_pcs || item.totalPcs || ((parseFloat(item.pcs_per_box) || 0) * bQty + extraPcs)) || 0;
 
-        if (bName && bQty > 0) {
-          oldBoxCounts[bName] = (oldBoxCounts[bName] || 0) + bQty;
+        if (bName && boxesNeeded > 0) {
+          oldBoxCounts[bName] = (oldBoxCounts[bName] || 0) + boxesNeeded;
         }
-        if (sName && bQty > 0) {
-          oldShrinkCounts[sName] = (oldShrinkCounts[sName] || 0) + bQty;
+        if (sName && pcsQty > 0) {
+          oldShrinkCounts[sName] = (oldShrinkCounts[sName] || 0) + pcsQty;
         }
         if (lName && pcsQty > 0) {
           oldLdCounts[lName] = (oldLdCounts[lName] || 0) + pcsQty;
@@ -566,18 +573,20 @@ const Invoice = {
       const newBoxCounts = {};
       const newShrinkCounts = {};
       const newLdCounts = {};
-      for (const item of items) {
+      for (const item of finalItems) {
         const bName = item.box_name;
         const sName = item.shrink_name;
         const lName = item.ld_name;
         const bQty = parseFloat(item.total_boxes || item.total_box || item.totalBox) || 0;
-        const pcsQty = parseFloat(item.total_pcs || item.totalPcs || ((parseFloat(item.pcs_per_box) || 0) * bQty + (parseFloat(item.extra_pcs) || 0))) || 0;
+        const extraPcs = parseFloat(item.extra_pcs || item.extraPcs) || 0;
+        const boxesNeeded = bQty + (extraPcs > 0 ? 1 : 0);
+        const pcsQty = parseFloat(item.total_pcs || item.totalPcs || ((parseFloat(item.pcs_per_box) || 0) * bQty + extraPcs)) || 0;
 
-        if (bName && bQty > 0) {
-          newBoxCounts[bName] = (newBoxCounts[bName] || 0) + bQty;
+        if (bName && boxesNeeded > 0) {
+          newBoxCounts[bName] = (newBoxCounts[bName] || 0) + boxesNeeded;
         }
-        if (sName && bQty > 0) {
-          newShrinkCounts[sName] = (newShrinkCounts[sName] || 0) + bQty;
+        if (sName && pcsQty > 0) {
+          newShrinkCounts[sName] = (newShrinkCounts[sName] || 0) + pcsQty;
         }
         if (lName && pcsQty > 0) {
           newLdCounts[lName] = (newLdCounts[lName] || 0) + pcsQty;
@@ -762,7 +771,7 @@ const Invoice = {
       const invoice = invoiceRows[0];
 
       const [items] = await connection.query(
-        `SELECT item_code, item_finish, total_pcs, net_kg
+        `SELECT item_code, item_finish, total_pcs, net_kg, box_name, shrink_name, ld_name, total_boxes, extra_pcs
          FROM invoice_items WHERE invoice_id = ? FOR UPDATE`,
         [id]
       );
@@ -782,6 +791,49 @@ const Invoice = {
         await connection.query(
           'UPDATE carton_inventory SET carton_quantity = carton_quantity + ? WHERE carton_name = ?',
           [cartonCounts[cartonName], cartonName]
+        );
+      }
+
+      // 1.1) Reverse packaging inventory (box, shrink, ld)
+      const boxCounts = {};
+      const shrinkCounts = {};
+      const ldCounts = {};
+      for (const item of items) {
+        const boxName = item.box_name;
+        const shrinkName = item.shrink_name;
+        const ldName = item.ld_name;
+        const totalBoxes = parseFloat(item.total_boxes) || 0;
+        const extraPcs = parseFloat(item.extra_pcs) || 0;
+        const totalPcs = parseFloat(item.total_pcs) || 0;
+
+        const boxesNeeded = totalBoxes + (extraPcs > 0 ? 1 : 0);
+        if (boxName && boxesNeeded > 0) {
+          boxCounts[boxName] = (boxCounts[boxName] || 0) + boxesNeeded;
+        }
+        if (shrinkName && totalPcs > 0) {
+          shrinkCounts[shrinkName] = (shrinkCounts[shrinkName] || 0) + totalPcs;
+        }
+        if (ldName && totalPcs > 0) {
+          ldCounts[ldName] = (ldCounts[ldName] || 0) + totalPcs;
+        }
+      }
+
+      for (const boxName of Object.keys(boxCounts)) {
+        await connection.query(
+          'UPDATE box_inventory SET box_quantity = box_quantity + ? WHERE box_name = ?',
+          [boxCounts[boxName], boxName]
+        );
+      }
+      for (const shrinkName of Object.keys(shrinkCounts)) {
+        await connection.query(
+          'UPDATE shrink_inventory SET shrink_quantity = shrink_quantity + (? * COALESCE(shrink_wt, 0)) WHERE shrink_name = ?',
+          [shrinkCounts[shrinkName], shrinkName]
+        );
+      }
+      for (const ldName of Object.keys(ldCounts)) {
+        await connection.query(
+          'UPDATE ld_inventory SET ld_quantity = ld_quantity + (? * COALESCE(ld_wt, 0)) WHERE ld_name = ?',
+          [ldCounts[ldName], ldName]
         );
       }
 
