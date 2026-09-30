@@ -20,6 +20,15 @@ const Invoice = {
     try {
       await connection.beginTransaction();
 
+      const toDec = (val) => {
+        if (val === null || val === undefined || val === '') return null;
+        const num = parseFloat(val);
+        return isNaN(num) ? null : num;
+      };
+
+      const refNo1 = toDec(invoiceData.reference_no_1);
+      const refNo2 = toDec(invoiceData.reference_no_2);
+
       // 1. Insert into invoices table (Unchanged)
       const invoiceFields = [
         'invoice_number', 'invoice_date', 'customer_id', 'reference_no_1',
@@ -31,16 +40,16 @@ const Invoice = {
         invoiceData.invoice_number || null,
         invoiceData.invoice_date || null,
         invoiceData.customer_id || null,
-        invoiceData.reference_no_1 || null,
-        invoiceData.reference_no_2 || null,
-        invoiceData.sub_total || 0,
-        invoiceData.gst_amount || 0,
+        refNo1,
+        refNo2,
+        toDec(invoiceData.sub_total) || 0,
+        toDec(invoiceData.gst_amount) || 0,
         invoiceData.other_charge || null,
-        invoiceData.other_charge_amount || 0,
-        invoiceData.grand_total || 0,
+        toDec(invoiceData.other_charge_amount) || 0,
+        toDec(invoiceData.grand_total) || 0,
         invoiceData.tr_number || null,
         invoiceData.lr_number || null,
-        invoiceData.grand_total || 0 // Set remaining_amount = grand_total
+        toDec(invoiceData.grand_total) || 0 // Set remaining_amount = grand_total
       ];
       const invoiceQuery = `INSERT INTO invoices (${invoiceFields.join(', ')}) VALUES (?)`;
       const [invoiceResult] = await connection.query(invoiceQuery, [invoiceValues]);
@@ -255,8 +264,7 @@ const Invoice = {
       }
 
       // --- NEW: Update customer reference numbers (no_1 and no_2) ---
-      const { reference_no_1, reference_no_2 } = invoiceData;
-      if (customer_id && (reference_no_1 || reference_no_2)) {
+      if (customer_id && (refNo1 !== null || refNo2 !== null)) {
         // Step 1: Find contact ID from contacts table using customer_id
         const [contactRows] = await connection.query(
           'SELECT id FROM contacts WHERE code = ? LIMIT 1',
@@ -270,14 +278,14 @@ const Invoice = {
           const updateFields = [];
           const updateValues = [];
 
-          if (reference_no_1 !== null && reference_no_1 !== undefined) {
+          if (refNo1 !== null && !isNaN(refNo1)) {
             updateFields.push('no_1 = COALESCE(no_1, 0) + ?');
-            updateValues.push(reference_no_1);
+            updateValues.push(refNo1);
           }
 
-          if (reference_no_2 !== null && reference_no_2 !== undefined) {
+          if (refNo2 !== null && !isNaN(refNo2)) {
             updateFields.push('no_2 = COALESCE(no_2, 0) + ?');
-            updateValues.push(reference_no_2);
+            updateValues.push(refNo2);
           }
 
           if (updateFields.length > 0) {
@@ -634,6 +642,9 @@ const Invoice = {
             const val = mainInvoiceData[field];
             if (val === '' || val === null || val === undefined || (typeof val === 'string' && val.trim() === '')) {
               mainInvoiceData[field] = null;
+            } else {
+              const num = parseFloat(val);
+              mainInvoiceData[field] = isNaN(num) ? null : num;
             }
           }
         }

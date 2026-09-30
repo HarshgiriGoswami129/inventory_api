@@ -9,10 +9,16 @@ const processInvoiceItems = (items = []) => {
     return [];
   }
 
+  const toNum = (val) => {
+    if (val === null || val === undefined || val === '') return 0;
+    const parsed = parseFloat(val);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
   return items.map(item => {
     // Ensure input values are treated as numbers
-    const no_of_peti = parseFloat(item.no_of_peti) || 0;
-    const ret_peti_no = parseFloat(item.ret_peti_no) || 0;
+    const no_of_peti = toNum(item.no_of_peti);
+    const ret_peti_no = toNum(item.ret_peti_no);
 
     // 1. Calculate the balance
     const peti_balance = no_of_peti - ret_peti_no;
@@ -27,14 +33,28 @@ const processInvoiceItems = (items = []) => {
       pati_status = 1; // Partial - some peti returned
     }
 
-    // 3. Return a new item object with the calculated fields
+    // 3. Return sanitized item object
     return {
-      ...item, // This correctly copies ret_peti_no and peti_Type from the request
+      ...item,
+      stock_kg: toNum(item.stock_kg),
+      scrap: toNum(item.scrap),
+      labour: toNum(item.labour),
+      kg_dzn: toNum(item.kg_dzn),
+      actual_dzn_wt: toNum(item.actual_dzn_wt),
+      total_per_6a: toNum(item.total_per_6a),
+      rate_pcr: toNum(item.rate_pcr),
+      total_kg: toNum(item.total_kg),
+      no_of_peti: no_of_peti,
+      peti_wt: toNum(item.peti_wt),
       peti_balance: peti_balance,
+      ret_peti_no: ret_peti_no,
+      net_kg: toNum(item.net_kg),
+      amount: toNum(item.amount),
+      total_psc: toNum(item.total_psc),
       pati_status: pati_status,
-      // --- FIX: The lines below were duplicating keys already copied by ...item ---
-      // ret_peti_no: ret_peti_no, // REMOVED
-      // Peti_Type: item.Peti_Type || null // REMOVED
+      notes: item.notes || null,
+      peti_Type: item.peti_Type || null,
+      code: item.code || null
     };
   });
 };
@@ -53,6 +73,14 @@ const purchaseInvoiceController = {
       }
 
       const { line_items, user_code, total_amount, ...invoiceData } = req.body;
+
+      // Ensure dates are not empty strings to avoid MySQL strict mode errors
+      if (!invoiceData.issue_date || (typeof invoiceData.issue_date === 'string' && invoiceData.issue_date.trim() === '')) {
+        invoiceData.issue_date = new Date().toISOString().split('T')[0];
+      }
+      if (!invoiceData.due_date || (typeof invoiceData.due_date === 'string' && invoiceData.due_date.trim() === '')) {
+        invoiceData.due_date = invoiceData.issue_date;
+      }
 
       const processedItems = processInvoiceItems(line_items);
 
@@ -108,6 +136,10 @@ const purchaseInvoiceController = {
 
       if (!id) {
         return res.status(400).json({ success: false, message: 'Invoice ID is required for update.' });
+      }
+
+      if (invoiceData.due_date !== undefined && (!invoiceData.due_date || (typeof invoiceData.due_date === 'string' && invoiceData.due_date.trim() === ''))) {
+        invoiceData.due_date = invoiceData.issue_date || new Date().toISOString().split('T')[0];
       }
 
       // Fetch old record before updating

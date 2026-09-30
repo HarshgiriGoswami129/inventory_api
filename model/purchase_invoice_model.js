@@ -6,10 +6,27 @@ const PurchaseInvoice = {
     try {
       await connection.beginTransaction();
 
+      // Sanitize main invoice dates and fields to avoid MySQL strict mode errors
+      if (!invoiceData.issue_date || (typeof invoiceData.issue_date === 'string' && invoiceData.issue_date.trim() === '')) {
+        invoiceData.issue_date = new Date().toISOString().split('T')[0];
+      }
+      if (!invoiceData.due_date || (typeof invoiceData.due_date === 'string' && invoiceData.due_date.trim() === '')) {
+        invoiceData.due_date = invoiceData.issue_date;
+      }
+      if (invoiceData.image_url === undefined || invoiceData.image_url === null) {
+        invoiceData.image_url = '';
+      }
+
       // Insert the main invoice record
       const invoiceQuery = 'INSERT INTO purchase_invoices SET ?';
       const [invoiceResult] = await connection.query(invoiceQuery, invoiceData);
       const newInvoiceId = invoiceResult.insertId;
+
+      const toDec = (val) => {
+        if (val === null || val === undefined || val === '') return 0;
+        const num = parseFloat(val);
+        return isNaN(num) ? 0 : num;
+      };
 
       // Loop through each line item
       if (lineItems && lineItems.length > 0) {
@@ -17,6 +34,20 @@ const PurchaseInvoice = {
           // 1. Insert the purchase invoice item as usual
           const { id, ...itemData } = item; // Exclude any temporary front-end ID
           itemData.invoice_id = newInvoiceId;
+          itemData.stock_kg = toDec(itemData.stock_kg);
+          itemData.scrap = toDec(itemData.scrap);
+          itemData.labour = toDec(itemData.labour);
+          itemData.kg_dzn = toDec(itemData.kg_dzn);
+          itemData.actual_dzn_wt = toDec(itemData.actual_dzn_wt);
+          itemData.rate_pcr = toDec(itemData.rate_pcr);
+          itemData.total_kg = toDec(itemData.total_kg);
+          itemData.no_of_peti = toDec(itemData.no_of_peti);
+          itemData.peti_wt = toDec(itemData.peti_wt);
+          itemData.peti_balance = toDec(itemData.peti_balance);
+          itemData.ret_peti_no = toDec(itemData.ret_peti_no);
+          itemData.net_kg = toDec(itemData.net_kg);
+          itemData.amount = toDec(itemData.amount);
+          itemData.total_psc = toDec(itemData.total_psc);
           const itemQuery = 'INSERT INTO purchase_invoice_items SET ?';
           await connection.query(itemQuery, itemData);
 
@@ -196,6 +227,9 @@ const PurchaseInvoice = {
 
       // Step 1: Update the main invoice details
       if (Object.keys(invoiceData).length > 0) {
+        if (invoiceData.due_date !== undefined && (!invoiceData.due_date || (typeof invoiceData.due_date === 'string' && invoiceData.due_date.trim() === ''))) {
+          invoiceData.due_date = invoiceData.issue_date || new Date().toISOString().split('T')[0];
+        }
         await connection.query('UPDATE purchase_invoices SET ? WHERE id = ?', [invoiceData, invoiceId]);
       }
 
@@ -205,12 +239,32 @@ const PurchaseInvoice = {
         await connection.query(deleteQuery, [deletedItemIds, invoiceId]);
       }
 
+      const toDec = (val) => {
+        if (val === null || val === undefined || val === '') return 0;
+        const num = parseFloat(val);
+        return isNaN(num) ? 0 : num;
+      };
+
       // Step 3: Loop through items to ONLY update existing ones
       for (const item of lineItems) {
         // This 'if' block remains the same.
         if (item.id) {
           // If it has an ID, it's an existing item. UPDATE it.
           const { id, ...itemData } = item;
+          itemData.stock_kg = toDec(itemData.stock_kg);
+          itemData.scrap = toDec(itemData.scrap);
+          itemData.labour = toDec(itemData.labour);
+          itemData.kg_dzn = toDec(itemData.kg_dzn);
+          itemData.actual_dzn_wt = toDec(itemData.actual_dzn_wt);
+          itemData.rate_pcr = toDec(itemData.rate_pcr);
+          itemData.total_kg = toDec(itemData.total_kg);
+          itemData.no_of_peti = toDec(itemData.no_of_peti);
+          itemData.peti_wt = toDec(itemData.peti_wt);
+          itemData.peti_balance = toDec(itemData.peti_balance);
+          itemData.ret_peti_no = toDec(itemData.ret_peti_no);
+          itemData.net_kg = toDec(itemData.net_kg);
+          itemData.amount = toDec(itemData.amount);
+          itemData.total_psc = toDec(itemData.total_psc);
           await connection.query('UPDATE purchase_invoice_items SET ? WHERE id = ? AND invoice_id = ?', [itemData, id, invoiceId]);
         }
         // --- CHANGE: The 'else' block below has been completely removed. ---
