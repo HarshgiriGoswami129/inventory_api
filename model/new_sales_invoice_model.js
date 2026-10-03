@@ -1089,6 +1089,8 @@ const Invoice = {
           invoice_date AS data, 
           invoice_number,
           invoice_number AS description, 
+          reference_no_1 AS no1,
+          reference_no_2 AS no2,
           grand_total,
           remaining_amount AS remaining_balance,
           DATEDIFF(NOW(), invoice_date) AS overdue_days
