@@ -310,12 +310,12 @@ const PurchaseInvoice = {
     if (search && search.trim()) {
       const terms = search.trim().split(/\s+/).filter(t => t.length > 0);
       if (terms.length > 0) {
-        const searchFields = ['invoice_number', 'code_user', 'supplier_name'];
+        const searchFields = ['invoice_number', 'code_user', 'user'];
 
         const termConditions = terms.map(term => {
           const fieldConditions = searchFields.map(field => {
             queryParams.push(`%${term}%`);
-            return `${field} LIKE ?`;
+            return `\`${field}\` LIKE ?`;
           }).join(' OR ');
           return `(${fieldConditions})`;
         });
