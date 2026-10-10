@@ -349,7 +349,7 @@ const Invoice = {
 
   // --- CHANGE: Replaced the old simple update function with this advanced one ---
   update: async (id, invoiceData) => {
-    const { items = [], deleted_item_ids = [], ...mainInvoiceData } = invoiceData;
+    const { items = [], deleted_item_ids = [], cartons = undefined, ...mainInvoiceData } = invoiceData;
     const connection = await db.getConnection();
 
     try {
@@ -635,6 +635,56 @@ const Invoice = {
             WHERE ld_name = ?
           `;
           await connection.query(updateLdQuery, [delta, lName]);
+        }
+      }
+
+      // 2.2) Adjust Carton inventory and update shipping_cartons
+      if (Array.isArray(cartons)) {
+        const [oldCartons] = await connection.query(
+          'SELECT carton_number FROM shipping_cartons WHERE invoice_id = ? FOR UPDATE',
+          [id]
+        );
+
+        const oldCartonCounts = {};
+        for (const carton of oldCartons) {
+          if (carton.carton_number) {
+            oldCartonCounts[carton.carton_number] = (oldCartonCounts[carton.carton_number] || 0) + 1;
+          }
+        }
+
+        const newCartonCounts = {};
+        for (const carton of cartons) {
+          if (carton.carton_number) {
+            newCartonCounts[carton.carton_number] = (newCartonCounts[carton.carton_number] || 0) + 1;
+          }
+        }
+
+        const allCartonNames = new Set([...Object.keys(oldCartonCounts), ...Object.keys(newCartonCounts)]);
+        for (const cName of allCartonNames) {
+          const oldCount = oldCartonCounts[cName] || 0;
+          const newCount = newCartonCounts[cName] || 0;
+          const delta = newCount - oldCount;
+          if (delta !== 0) {
+            await connection.query(
+              'UPDATE carton_inventory SET carton_quantity = carton_quantity - ? WHERE carton_name = ?',
+              [delta, cName]
+            );
+          }
+        }
+
+        // Delete old shipping_cartons for this invoice and insert new ones
+        await connection.query('DELETE FROM shipping_cartons WHERE invoice_id = ?', [id]);
+
+        if (cartons.length > 0) {
+          const cartonFields = ['invoice_id', 'carton_number', 'carton_weight', 'weight_per_ctn'];
+          const cartonQuery = `INSERT INTO shipping_cartons (${cartonFields.join(', ')}) VALUES ?`;
+          const cartonValues = cartons.map((c) => [
+            id,
+            c.carton_number || null,
+            parseFloat(c.carton_weight) || 0,
+            parseFloat(c.weight_per_ctn) || 0
+          ]);
+          await connection.query(cartonQuery, [cartonValues]);
         }
       }
 
