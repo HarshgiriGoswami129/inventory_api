@@ -689,26 +689,50 @@ const Invoice = {
       }
 
       // Step 3: Update the main invoice details
-      if (Object.keys(mainInvoiceData).length > 0) {
+      const validInvoiceColumns = [
+        'invoice_number', 'invoice_date', 'customer_id',
+        'reference_no_1', 'reference_no_2', 'sub_total',
+        'gst_amount', 'other_charge', 'other_charge_amount',
+        'grand_total', 'remaining_amount', 'tr_number', 'lr_number'
+      ];
+
+      const updateData = {};
+      for (const col of validInvoiceColumns) {
+        if (Object.prototype.hasOwnProperty.call(mainInvoiceData, col)) {
+          updateData[col] = mainInvoiceData[col];
+        }
+      }
+
+      // If grand_total changed, adjust remaining_amount accordingly
+      if (updateData.grand_total !== undefined && updateData.grand_total !== null) {
+        const oldGrandTotal = toNum(invoice.grand_total);
+        const newGrandTotal = toNum(updateData.grand_total);
+        const grandTotalDelta = newGrandTotal - oldGrandTotal;
+        if (grandTotalDelta !== 0) {
+          updateData.remaining_amount = Math.max(0, toNum(invoice.remaining_amount) + grandTotalDelta);
+        }
+      }
+
+      if (Object.keys(updateData).length > 0) {
         // Sanitize: convert empty strings to null for decimal/numeric columns
         // so MySQL doesn't throw "Incorrect decimal value: ''"
         const decimalFields = [
           'reference_no_1', 'reference_no_2', 'sub_total', 'gst_amount',
-          'other_charge_amount', 'grand_total', 'total_net_kg'
+          'other_charge_amount', 'grand_total', 'remaining_amount'
         ];
         for (const field of decimalFields) {
-          if (Object.prototype.hasOwnProperty.call(mainInvoiceData, field)) {
-            const val = mainInvoiceData[field];
+          if (Object.prototype.hasOwnProperty.call(updateData, field)) {
+            const val = updateData[field];
             if (val === '' || val === null || val === undefined || (typeof val === 'string' && val.trim() === '')) {
-              mainInvoiceData[field] = null;
+              updateData[field] = null;
             } else {
               const num = parseFloat(val);
-              mainInvoiceData[field] = isNaN(num) ? null : num;
+              updateData[field] = isNaN(num) ? null : num;
             }
           }
         }
-        const setClause = Object.keys(mainInvoiceData).map(key => `${key} = ?`).join(', ');
-        const values = [...Object.values(mainInvoiceData), id];
+        const setClause = Object.keys(updateData).map(key => `${key} = ?`).join(', ');
+        const values = [...Object.values(updateData), id];
         await connection.query(`UPDATE invoices SET ${setClause} WHERE id = ?`, values);
       }
 
