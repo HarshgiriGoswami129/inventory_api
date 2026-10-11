@@ -413,6 +413,7 @@ const PurchaseInvoice = {
   },
 
   // Paginated search with multi-term support
+  // Paginated search with multi-field and multi-term support
   findAllPaginated: async ({ page = 1, limit = 10, search = '' }) => {
     const offset = (page - 1) * limit;
 
@@ -420,16 +421,44 @@ const PurchaseInvoice = {
     let queryParams = [];
 
     if (search && search.trim()) {
-      const terms = search.trim().split(/\s+/).filter(t => t.length > 0);
+      const terms = search.trim().split(/\s+/).filter(Boolean);
       if (terms.length > 0) {
-        const searchFields = ['invoice_number', 'code_user', 'user'];
-
         const termConditions = terms.map(term => {
-          const fieldConditions = searchFields.map(field => {
-            queryParams.push(`%${term}%`);
-            return `\`${field}\` LIKE ?`;
-          }).join(' OR ');
-          return `(${fieldConditions})`;
+          const pattern = `%${term}%`;
+          queryParams.push(
+            pattern, // pi.invoice_number
+            pattern, // pi.code_user
+            pattern, // pi.user
+            pattern, // c.contact_name
+            pattern, // pii.item_code
+            pattern, // pii.description
+            pattern, // pii.code
+            pattern, // pii.notes
+            pattern  // status
+          );
+          return `(
+            pi.invoice_number LIKE ?
+            OR pi.code_user LIKE ?
+            OR pi.user LIKE ?
+            OR c.contact_name LIKE ?
+            OR EXISTS (
+              SELECT 1 FROM purchase_invoice_items pii
+              WHERE pii.invoice_id = pi.id
+              AND (
+                pii.item_code LIKE ?
+                OR pii.description LIKE ?
+                OR pii.code LIKE ?
+                OR pii.notes LIKE ?
+              )
+            )
+            OR (
+              CASE
+                WHEN pi.balance_due = 0 AND pi.total_amount > 0 THEN 'Paid'
+                WHEN pi.balance_due > 0 AND pi.balance_due < pi.total_amount THEN 'Partial'
+                ELSE 'Pending'
+              END
+            ) LIKE ?
+          )`;
         });
 
         whereConditions.push(`(${termConditions.join(' AND ')})`);
@@ -438,17 +467,29 @@ const PurchaseInvoice = {
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-    const countQuery = `SELECT COUNT(*) as total FROM purchase_invoices ${whereClause}`;
+    const countQuery = `
+      SELECT COUNT(DISTINCT pi.id) as total
+      FROM purchase_invoices pi
+      LEFT JOIN contacts c ON (c.code = pi.code_user OR c.code = pi.user OR c.code = SUBSTRING_INDEX(pi.code_user, '_', 1))
+      ${whereClause}
+    `;
     const [countResult] = await db.query(countQuery, queryParams);
     const total = countResult[0].total;
 
-    const dataQuery = `SELECT *,
+    const dataQuery = `
+      SELECT pi.*,
+        c.contact_name AS supplier_contact_name,
         CASE
-          WHEN balance_due = 0 AND total_amount > 0 THEN 'Paid'
-          WHEN balance_due > 0 AND balance_due < total_amount THEN 'Partial'
+          WHEN pi.balance_due = 0 AND pi.total_amount > 0 THEN 'Paid'
+          WHEN pi.balance_due > 0 AND pi.balance_due < pi.total_amount THEN 'Partial'
           ELSE 'Pending'
         END AS status
-      FROM purchase_invoices ${whereClause} ORDER BY issue_date DESC LIMIT ? OFFSET ?`;
+      FROM purchase_invoices pi
+      LEFT JOIN contacts c ON (c.code = pi.code_user OR c.code = pi.user OR c.code = SUBSTRING_INDEX(pi.code_user, '_', 1))
+      ${whereClause}
+      ORDER BY pi.issue_date DESC, pi.id DESC
+      LIMIT ? OFFSET ?
+    `;
     const [rows] = await db.query(dataQuery, [...queryParams, limit, offset]);
 
     return {
