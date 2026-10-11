@@ -225,18 +225,49 @@ const PurchaseInvoice = {
     try {
       await connection.beginTransaction();
 
-      // Step 1: Update the main invoice details
-      if (Object.keys(invoiceData).length > 0) {
-        if (invoiceData.due_date !== undefined && (!invoiceData.due_date || (typeof invoiceData.due_date === 'string' && invoiceData.due_date.trim() === ''))) {
-          invoiceData.due_date = invoiceData.issue_date || new Date().toISOString().split('T')[0];
+      // Step 1: Update the main invoice details (sanitize fields)
+      const allowedInvoiceFields = ['invoice_number', 'issue_date', 'due_date', 'image_url', 'code_user', 'user'];
+      const sanitizedInvoice = {};
+      for (const field of allowedInvoiceFields) {
+        if (invoiceData[field] !== undefined) {
+          sanitizedInvoice[field] = invoiceData[field];
         }
-        await connection.query('UPDATE purchase_invoices SET ? WHERE id = ?', [invoiceData, invoiceId]);
       }
 
-      // Step 2: Delete any items that were removed
-      if (deletedItemIds.length > 0) {
-        const deleteQuery = 'DELETE FROM purchase_invoice_items WHERE id IN (?) AND invoice_id = ?';
-        await connection.query(deleteQuery, [deletedItemIds, invoiceId]);
+      if (sanitizedInvoice.due_date !== undefined && (!sanitizedInvoice.due_date || (typeof sanitizedInvoice.due_date === 'string' && sanitizedInvoice.due_date.trim() === ''))) {
+        sanitizedInvoice.due_date = sanitizedInvoice.issue_date || new Date().toISOString().split('T')[0];
+      }
+
+      if (Object.keys(sanitizedInvoice).length > 0) {
+        await connection.query('UPDATE purchase_invoices SET ? WHERE id = ?', [sanitizedInvoice, invoiceId]);
+      }
+
+      // Step 2: Fetch existing items in database for this invoice
+      const [existingRows] = await connection.query(
+        'SELECT id FROM purchase_invoice_items WHERE invoice_id = ?',
+        [invoiceId]
+      );
+      const existingIdSet = new Set(existingRows.map(r => r.id));
+
+      // Step 3: Determine which items must be deleted:
+      // (a) IDs explicitly sent in deletedItemIds
+      // (b) Any existing DB items that are NOT present in the received lineItems
+      const receivedExistingIds = new Set(
+        lineItems
+          .filter(i => i.id && existingIdSet.has(Number(i.id)))
+          .map(i => Number(i.id))
+      );
+
+      const toDeleteSet = new Set([
+        ...(Array.isArray(deletedItemIds) ? deletedItemIds.map(Number).filter(id => existingIdSet.has(id)) : []),
+        ...existingRows.map(r => r.id).filter(id => !receivedExistingIds.has(id))
+      ]);
+
+      if (toDeleteSet.size > 0) {
+        await connection.query(
+          'DELETE FROM purchase_invoice_items WHERE id IN (?) AND invoice_id = ?',
+          [[...toDeleteSet], invoiceId]
+        );
       }
 
       const toDec = (val) => {
@@ -245,39 +276,120 @@ const PurchaseInvoice = {
         return isNaN(num) ? 0 : num;
       };
 
-      // Step 3: Loop through items to ONLY update existing ones
+      const allowedItemFields = [
+        'item_code', 'code', 'description', 'stock_kg', 'scrap', 'labour',
+        'kg_dzn', 'actual_dzn_wt', 'total_per_6a', 'rate_pcr', 'total_kg',
+        'no_of_peti', 'peti_wt', 'peti_balance', 'ret_peti_no', 'peti_Type',
+        'net_kg', 'amount', 'notes', 'pati_status', 'pic_or_kg', 'total_psc'
+      ];
+
+      // Step 4: Loop through lineItems - UPDATE existing, INSERT new
       for (const item of lineItems) {
-        // This 'if' block remains the same.
-        if (item.id) {
-          // If it has an ID, it's an existing item. UPDATE it.
-          const { id, ...itemData } = item;
-          itemData.stock_kg = toDec(itemData.stock_kg);
-          itemData.scrap = toDec(itemData.scrap);
-          itemData.labour = toDec(itemData.labour);
-          itemData.kg_dzn = toDec(itemData.kg_dzn);
-          itemData.actual_dzn_wt = toDec(itemData.actual_dzn_wt);
-          itemData.rate_pcr = toDec(itemData.rate_pcr);
-          itemData.total_kg = toDec(itemData.total_kg);
-          itemData.no_of_peti = toDec(itemData.no_of_peti);
-          itemData.peti_wt = toDec(itemData.peti_wt);
-          itemData.peti_balance = toDec(itemData.peti_balance);
-          itemData.ret_peti_no = toDec(itemData.ret_peti_no);
-          itemData.net_kg = toDec(itemData.net_kg);
-          itemData.amount = toDec(itemData.amount);
-          itemData.total_psc = toDec(itemData.total_psc);
-          await connection.query('UPDATE purchase_invoice_items SET ? WHERE id = ? AND invoice_id = ?', [itemData, id, invoiceId]);
+        const isExisting = item.id && existingIdSet.has(Number(item.id)) && !toDeleteSet.has(Number(item.id));
+
+        const itemData = {};
+        for (const field of allowedItemFields) {
+          if (item[field] !== undefined) {
+            itemData[field] = item[field];
+          }
         }
-        // --- CHANGE: The 'else' block below has been completely removed. ---
-        // else {
-        //    // If it has no ID, it's a new item. INSERT it.
-        //    item.invoice_id = invoiceId;
-        //    await connection.query('INSERT INTO purchase_invoice_items SET ?', item);
-        // }
+
+        // Support petiType vs peti_Type
+        if (!itemData.peti_Type && (item.petiType || item.peti_type)) {
+          itemData.peti_Type = item.petiType || item.peti_type;
+        }
+        if (!itemData.peti_Type) {
+          itemData.peti_Type = 'WD';
+        }
+
+        // Ensure item_code is present
+        if (!itemData.item_code) {
+          itemData.item_code = item.code || item.itemCode || 'ITEM';
+        }
+
+        // Numbers sanitization
+        itemData.stock_kg = toDec(itemData.stock_kg);
+        itemData.scrap = toDec(itemData.scrap);
+        itemData.labour = toDec(itemData.labour);
+        itemData.kg_dzn = toDec(itemData.kg_dzn);
+        itemData.actual_dzn_wt = toDec(itemData.actual_dzn_wt);
+        itemData.rate_pcr = toDec(itemData.rate_pcr);
+        itemData.total_kg = toDec(itemData.total_kg);
+        itemData.no_of_peti = toDec(itemData.no_of_peti);
+        itemData.peti_wt = toDec(itemData.peti_wt);
+        itemData.peti_balance = toDec(itemData.peti_balance);
+        itemData.ret_peti_no = toDec(itemData.ret_peti_no);
+        itemData.net_kg = toDec(itemData.net_kg);
+        itemData.amount = toDec(itemData.amount);
+        itemData.total_psc = toDec(itemData.total_psc);
+        itemData.total_per_6a = toDec(itemData.total_per_6a);
+        if (itemData.pic_or_kg !== undefined) {
+          itemData.pic_or_kg = Number(itemData.pic_or_kg) || 0;
+        }
+
+        if (isExisting) {
+          await connection.query(
+            'UPDATE purchase_invoice_items SET ? WHERE id = ? AND invoice_id = ?',
+            [itemData, item.id, invoiceId]
+          );
+        } else {
+          itemData.invoice_id = invoiceId;
+          await connection.query(
+            'INSERT INTO purchase_invoice_items SET ?',
+            [itemData]
+          );
+        }
+      }
+
+      // Step 5: Recalculate total_amount and balance_due on purchase_invoices
+      const [totalRows] = await connection.query(
+        'SELECT COALESCE(SUM(amount), 0) as total FROM purchase_invoice_items WHERE invoice_id = ?',
+        [invoiceId]
+      );
+      const newTotal = parseFloat(totalRows[0].total) || 0;
+
+      const [invRows] = await connection.query(
+        'SELECT total_amount, balance_due, code_user, user FROM purchase_invoices WHERE id = ?',
+        [invoiceId]
+      );
+
+      if (invRows.length > 0) {
+        const oldTotal = parseFloat(invRows[0].total_amount) || 0;
+        const oldBalance = parseFloat(invRows[0].balance_due) || 0;
+        const amountPaid = Math.max(0, oldTotal - oldBalance);
+        const newBalance = Math.max(0, newTotal - amountPaid);
+
+        await connection.query(
+          'UPDATE purchase_invoices SET total_amount = ?, balance_due = ? WHERE id = ?',
+          [newTotal, newBalance, invoiceId]
+        );
+
+        // Update supplier_details total_amount by delta
+        const delta = newTotal - oldTotal;
+        const rawSupplierCode = sanitizedInvoice.code_user || invRows[0].code_user || sanitizedInvoice.user || invRows[0].user || '';
+        const supplierCodeVal = String(rawSupplierCode).trim();
+        if (supplierCodeVal && Math.abs(delta) > 0.001) {
+          try {
+            const baseCode = supplierCodeVal.split('_')[0];
+            const [contacts] = await connection.query(
+              'SELECT id FROM contacts WHERE code = ? OR code = ? OR contact_name = ? LIMIT 1',
+              [supplierCodeVal, baseCode, supplierCodeVal]
+            );
+            if (contacts.length > 0) {
+              await connection.query(
+                'UPDATE supplier_details SET total_amount = COALESCE(total_amount, 0) + ? WHERE contact_id = ?',
+                [delta, contacts[0].id]
+              );
+            }
+          } catch (supplierErr) {
+            console.log('Supplier total update error:', supplierErr.message);
+          }
+        }
       }
 
       await connection.commit();
       const updatedItems = await connection.query('SELECT * FROM purchase_invoice_items WHERE invoice_id = ?', [invoiceId]);
-      return { id: invoiceId, ...invoiceData, line_items: updatedItems[0] };
+      return { id: invoiceId, ...sanitizedInvoice, line_items: updatedItems[0] };
 
     } catch (error) {
       await connection.rollback();
