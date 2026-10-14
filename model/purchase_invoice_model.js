@@ -6,20 +6,47 @@ const PurchaseInvoice = {
     try {
       await connection.beginTransaction();
 
+      // Allowed fields for purchase_invoices table
+      const allowedInvoiceFields = [
+        'code_user', 'user', 'invoice_number', 'issue_date', 'due_date',
+        'total_amount', 'balance_due', 'image_url'
+      ];
+      const sanitizedInvoice = {};
+      for (const field of allowedInvoiceFields) {
+        if (invoiceData[field] !== undefined) {
+          sanitizedInvoice[field] = invoiceData[field];
+        }
+      }
+
       // Sanitize main invoice dates and fields to avoid MySQL strict mode errors
-      if (!invoiceData.issue_date || (typeof invoiceData.issue_date === 'string' && invoiceData.issue_date.trim() === '')) {
-        invoiceData.issue_date = new Date().toISOString().split('T')[0];
+      if (!sanitizedInvoice.issue_date || (typeof sanitizedInvoice.issue_date === 'string' && sanitizedInvoice.issue_date.trim() === '')) {
+        sanitizedInvoice.issue_date = new Date().toISOString().split('T')[0];
       }
-      if (!invoiceData.due_date || (typeof invoiceData.due_date === 'string' && invoiceData.due_date.trim() === '')) {
-        invoiceData.due_date = invoiceData.issue_date;
+      if (!sanitizedInvoice.due_date || (typeof sanitizedInvoice.due_date === 'string' && sanitizedInvoice.due_date.trim() === '')) {
+        sanitizedInvoice.due_date = sanitizedInvoice.issue_date;
       }
-      if (invoiceData.image_url === undefined || invoiceData.image_url === null) {
-        invoiceData.image_url = '';
+      if (sanitizedInvoice.image_url === undefined || sanitizedInvoice.image_url === null) {
+        sanitizedInvoice.image_url = '';
+      }
+      if (sanitizedInvoice.code_user === undefined || sanitizedInvoice.code_user === null) {
+        sanitizedInvoice.code_user = userCode || invoiceData.supplier_code || '';
+      }
+      if (sanitizedInvoice.user === undefined || sanitizedInvoice.user === null) {
+        sanitizedInvoice.user = invoiceData.user || invoiceData.code_user || '';
+      }
+      if (sanitizedInvoice.invoice_number === undefined || sanitizedInvoice.invoice_number === null) {
+        sanitizedInvoice.invoice_number = '';
+      }
+      if (sanitizedInvoice.total_amount === undefined && invoiceTotal !== undefined) {
+        sanitizedInvoice.total_amount = parseFloat(invoiceTotal) || 0;
+      }
+      if (sanitizedInvoice.balance_due === undefined) {
+        sanitizedInvoice.balance_due = sanitizedInvoice.total_amount || 0;
       }
 
       // Insert the main invoice record
       const invoiceQuery = 'INSERT INTO purchase_invoices SET ?';
-      const [invoiceResult] = await connection.query(invoiceQuery, invoiceData);
+      const [invoiceResult] = await connection.query(invoiceQuery, sanitizedInvoice);
       const newInvoiceId = invoiceResult.insertId;
 
       const toDec = (val) => {
@@ -28,17 +55,41 @@ const PurchaseInvoice = {
         return isNaN(num) ? 0 : num;
       };
 
+      const allowedItemFields = [
+        'item_code', 'code', 'description', 'stock_kg', 'scrap', 'labour',
+        'kg_dzn', 'actual_dzn_wt', 'total_per_6a', 'rate_pcr', 'total_kg',
+        'no_of_peti', 'peti_wt', 'peti_balance', 'ret_peti_no', 'peti_Type',
+        'net_kg', 'amount', 'notes', 'pati_status', 'pic_or_kg', 'total_psc'
+      ];
+
       // Loop through each line item
       if (lineItems && lineItems.length > 0) {
         for (const item of lineItems) {
-          // 1. Insert the purchase invoice item as usual
-          const { id, ...itemData } = item; // Exclude any temporary front-end ID
+          const itemData = {};
+          for (const field of allowedItemFields) {
+            if (item[field] !== undefined) {
+              itemData[field] = item[field];
+            }
+          }
+
+          if (!itemData.peti_Type && (item.petiType || item.peti_type)) {
+            itemData.peti_Type = item.petiType || item.peti_type;
+          }
+          if (!itemData.peti_Type) {
+            itemData.peti_Type = 'WD';
+          }
+
+          if (!itemData.item_code) {
+            itemData.item_code = item.code || item.itemCode || 'ITEM';
+          }
+
           itemData.invoice_id = newInvoiceId;
           itemData.stock_kg = toDec(itemData.stock_kg);
           itemData.scrap = toDec(itemData.scrap);
           itemData.labour = toDec(itemData.labour);
           itemData.kg_dzn = toDec(itemData.kg_dzn);
           itemData.actual_dzn_wt = toDec(itemData.actual_dzn_wt);
+          itemData.total_per_6a = toDec(itemData.total_per_6a);
           itemData.rate_pcr = toDec(itemData.rate_pcr);
           itemData.total_kg = toDec(itemData.total_kg);
           itemData.no_of_peti = toDec(itemData.no_of_peti);
@@ -48,6 +99,10 @@ const PurchaseInvoice = {
           itemData.net_kg = toDec(itemData.net_kg);
           itemData.amount = toDec(itemData.amount);
           itemData.total_psc = toDec(itemData.total_psc);
+          if (itemData.pic_or_kg !== undefined) {
+            itemData.pic_or_kg = Number(itemData.pic_or_kg) || 0;
+          }
+
           const itemQuery = 'INSERT INTO purchase_invoice_items SET ?';
           await connection.query(itemQuery, itemData);
 
@@ -55,7 +110,7 @@ const PurchaseInvoice = {
           const totalPcs = parseFloat(item.total_psc || item.quantity_pcs || item.pcs) || 0;
           const totalKg = parseFloat(item.net_kg || item.total_kg || item.kg) || 0;
           const itemCodeVal = item.code || item.item_code;
-          const userVal = userCode || invoiceData.code_user || item.user;
+          const userVal = userCode || sanitizedInvoice.code_user || item.user;
 
           if (itemCodeVal && (totalPcs > 0 || totalKg > 0)) {
             // 1. Master Items Stock Update
@@ -82,10 +137,10 @@ const PurchaseInvoice = {
                 `;
                 await connection.query(historyQuery, [
                   itemCodeVal,
-                  invoiceData.invoice_number || null,
+                  sanitizedInvoice.invoice_number || null,
                   totalPcs,
                   totalKg,
-                  invoiceData.issue_date || new Date(),
+                  sanitizedInvoice.issue_date || new Date(),
                   null,
                   invoiceData.created_by || null
                 ]);
@@ -172,7 +227,7 @@ const PurchaseInvoice = {
       );
 
       // Update supplier's total amount if applicable
-      const rawSupplierCode = userCode || invoiceData.code_user || invoiceData.supplier_code || invoiceData.user || '';
+      const rawSupplierCode = userCode || sanitizedInvoice.code_user || invoiceData.supplier_code || sanitizedInvoice.user || '';
       const supplierCodeVal = String(rawSupplierCode).trim();
       const finalInvoiceTotal = calculatedTotal > 0 ? calculatedTotal : (parseFloat(invoiceTotal) || 0);
 
@@ -209,7 +264,7 @@ const PurchaseInvoice = {
       }
 
       await connection.commit();
-      return { id: newInvoiceId, ...invoiceData, line_items: lineItems };
+      return { id: newInvoiceId, ...sanitizedInvoice, line_items: lineItems };
     } catch (error) {
       await connection.rollback();
       throw error;

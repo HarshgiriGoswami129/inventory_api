@@ -72,7 +72,7 @@ const purchaseInvoiceController = {
         });
       }
 
-      const { line_items, user_code, total_amount, ...invoiceData } = req.body;
+      const { line_items, user_code, total_amount, deleted_item_ids, ...invoiceData } = req.body;
 
       // Ensure dates are not empty strings to avoid MySQL strict mode errors
       if (!invoiceData.issue_date || (typeof invoiceData.issue_date === 'string' && invoiceData.issue_date.trim() === '')) {
