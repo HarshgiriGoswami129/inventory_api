@@ -72,8 +72,8 @@ const PurchaseInvoice = {
             }
           }
 
-          if (!itemData.peti_Type && (item.petiType || item.peti_type)) {
-            itemData.peti_Type = item.petiType || item.peti_type;
+          if (!itemData.peti_Type && (item.petiType || item.peti_type || item.pati_type || item.patiType)) {
+            itemData.peti_Type = item.petiType || item.peti_type || item.pati_type || item.patiType;
           }
           if (!itemData.peti_Type) {
             itemData.peti_Type = 'WD';
@@ -350,8 +350,8 @@ const PurchaseInvoice = {
         }
 
         // Support petiType vs peti_Type
-        if (!itemData.peti_Type && (item.petiType || item.peti_type)) {
-          itemData.peti_Type = item.petiType || item.peti_type;
+        if (!itemData.peti_Type && (item.petiType || item.peti_type || item.pati_type || item.patiType)) {
+          itemData.peti_Type = item.petiType || item.peti_type || item.pati_type || item.patiType;
         }
         if (!itemData.peti_Type) {
           itemData.peti_Type = 'WD';

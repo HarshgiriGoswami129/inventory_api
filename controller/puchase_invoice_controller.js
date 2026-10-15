@@ -53,7 +53,7 @@ const processInvoiceItems = (items = []) => {
       total_psc: toNum(item.total_psc),
       pati_status: pati_status,
       notes: item.notes || null,
-      peti_Type: item.peti_Type || null,
+      peti_Type: item.peti_Type || item.petiType || item.peti_type || item.pati_type || item.patiType || null,
       code: item.code || null
     };
   });
