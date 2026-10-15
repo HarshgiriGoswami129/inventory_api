@@ -94,6 +94,17 @@ app.use('/database', databaseRoutes);
 app.use('/sales-lock', salesLockRoutes);
 app.use('/system-settings', systemSettingsRoutes);
 
+// Global error handling middleware (catches unhandled errors and returns direct database/backend error)
+app.use((err, req, res, next) => {
+  console.error('Unhandled Server Error:', err);
+  const errMsg = err.sqlMessage || err.message || 'Internal Server Error';
+  res.status(err.status || 500).json({
+    success: false,
+    message: errMsg,
+    error: errMsg
+  });
+});
+
 // An async function to connect to the DB and then start the server
 const startServer = async () => {
   try {
