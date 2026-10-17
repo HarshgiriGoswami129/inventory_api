@@ -1,5 +1,12 @@
 const db = require('../config/db');
 
+const sanitizeDate = (val) => {
+  if (val === undefined || val === null || val === '') return null;
+  if (typeof val === 'string' && val.trim() === '') return null;
+  return val;
+};
+const dateFields = new Set(['date', 'due_date', 'note_date']);
+
 const Contact = {
   // --- REWRITTEN create function ---
   create: async (contactData) => {
@@ -23,7 +30,7 @@ const Contact = {
           place_of_supply, reverse_charge, type_of_registration, total_amount,
           // ADD these new fields
           notes, payment, date, order_follow_up, no_1, no_2
-        } = baseData.details;
+        } = baseData.details || {};
 
         // Update the INSERT query
         const customerQuery = `INSERT INTO customer_details 
@@ -36,7 +43,7 @@ const Contact = {
         await connection.query(customerQuery, [
           contactId, credit_period, billing_address, delivery_address, gstin, pan,
           place_of_supply, reverse_charge, type_of_registration, total_amount,
-          notes, payment, date, order_follow_up, no_1, no_2
+          notes, payment, sanitizeDate(date), order_follow_up, no_1, no_2
         ]);
       }
       else if (type === 'Supplier') {
@@ -56,8 +63,8 @@ const Contact = {
 
         // Add the new values to the array
         await connection.query(supplierQuery, [
-          contactId, credit_limit, division, due_date, payment_status, note, total_amount,
-          notes, payment, date, order_follow_up, note_date, no_1, no_2
+          contactId, credit_limit, division, sanitizeDate(due_date), payment_status, note, total_amount,
+          notes, payment, sanitizeDate(date), order_follow_up, sanitizeDate(note_date), no_1, no_2
         ]);
       }
 
@@ -185,7 +192,7 @@ const Contact = {
         const customerValues = [];
         for (const [key, value] of Object.entries(details)) {
           customerFields.push(`${key} = ?`);
-          customerValues.push(value);
+          customerValues.push(dateFields.has(key) ? sanitizeDate(value) : value);
         }
         customerValues.push(id); // contact_id
         const updateCustomerQuery = `UPDATE customer_details SET ${customerFields.join(', ')} WHERE contact_id = ?`;
@@ -201,7 +208,7 @@ const Contact = {
 
         for (const [key, value] of Object.entries(details)) {
           supplierFields.push(`${key} = ?`);
-          supplierValues.push(value);
+          supplierValues.push(dateFields.has(key) ? sanitizeDate(value) : value);
         }
         supplierValues.push(id); // contact_id
         const updateSupplierQuery = `UPDATE supplier_details SET ${supplierFields.join(', ')} WHERE contact_id = ?`;
