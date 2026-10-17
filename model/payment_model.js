@@ -58,27 +58,51 @@ const Payment = {
         await connection.query(updateSupplierQuery, [amount, contact_id]);
       }
 
-      // 4. FIFO: Apply payment to oldest purchase invoices for this supplier
+      // 4. FIFO: Settle Supplier Opening Due first, then oldest purchase invoices
       if (contact_id) {
         // Get supplier code from contacts
         const [supplierRows] = await connection.query('SELECT code FROM contacts WHERE id = ?', [contact_id]);
         if (supplierRows.length > 0) {
           const supplierCode = supplierRows[0].code;
-          // Get unpaid PIs for this supplier, oldest first
-          const [unpaidPIs] = await connection.query(
-            'SELECT id, balance_due FROM purchase_invoices WHERE user = ? AND balance_due > 0 ORDER BY id ASC FOR UPDATE',
+
+          // Get supplier total balance before this payment (step 3 already subtracted amount)
+          const [suppDetailRows] = await connection.query('SELECT total_amount FROM supplier_details WHERE contact_id = ?', [contact_id]);
+          const currentTotal = parseFloat(suppDetailRows[0]?.total_amount) || 0;
+          const previousTotal = currentTotal + parseFloat(amount);
+
+          // Get total unpaid PIs
+          const [piSumRows] = await connection.query(
+            'SELECT COALESCE(SUM(balance_due), 0) AS total_pi_due FROM purchase_invoices WHERE user = ? AND balance_due > 0',
             [supplierCode]
           );
+          const totalPIDue = parseFloat(piSumRows[0]?.total_pi_due) || 0;
+
+          // Unsettled opening due
+          const unsettledOpeningDue = Math.max(0, previousTotal - totalPIDue);
           let remainingPayment = parseFloat(amount);
-          for (const pi of unpaidPIs) {
-            if (remainingPayment <= 0) break;
-            const piBalance = parseFloat(pi.balance_due);
-            const deduction = Math.min(remainingPayment, piBalance);
-            await connection.query(
-              'UPDATE purchase_invoices SET balance_due = balance_due - ? WHERE id = ?',
-              [deduction, pi.id]
+
+          // 1. Settle supplier opening due first
+          if (unsettledOpeningDue > 0) {
+            const openingSettled = Math.min(remainingPayment, unsettledOpeningDue);
+            remainingPayment -= openingSettled;
+          }
+
+          // 2. Settle oldest purchase invoices with remaining payment
+          if (remainingPayment > 0) {
+            const [unpaidPIs] = await connection.query(
+              'SELECT id, balance_due FROM purchase_invoices WHERE user = ? AND balance_due > 0 ORDER BY id ASC FOR UPDATE',
+              [supplierCode]
             );
-            remainingPayment -= deduction;
+            for (const pi of unpaidPIs) {
+              if (remainingPayment <= 0) break;
+              const piBalance = parseFloat(pi.balance_due);
+              const deduction = Math.min(remainingPayment, piBalance);
+              await connection.query(
+                'UPDATE purchase_invoices SET balance_due = balance_due - ? WHERE id = ?',
+                [deduction, pi.id]
+              );
+              remainingPayment -= deduction;
+            }
           }
         }
       }

@@ -44,19 +44,20 @@ const Contact = {
         const {
           credit_limit, division, due_date, payment_status, note, total_amount,
           // ADD these new fields
-          notes, payment, date, order_follow_up, note_date
-        } = baseData.details;
+          notes, payment, date, order_follow_up, note_date,
+          no_1, no_2
+        } = baseData.details || {};
 
         // Update the INSERT query
         const supplierQuery = `INSERT INTO supplier_details 
         (contact_id, credit_limit, division, due_date, payment_status, note, total_amount,
-         notes, payment, date, order_follow_up, note_date) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+         notes, payment, date, order_follow_up, note_date, no_1, no_2) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         // Add the new values to the array
         await connection.query(supplierQuery, [
           contactId, credit_limit, division, due_date, payment_status, note, total_amount,
-          notes, payment, date, order_follow_up, note_date
+          notes, payment, date, order_follow_up, note_date, no_1, no_2
         ]);
       }
 
@@ -79,7 +80,9 @@ const Contact = {
             cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
             cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
             COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
-            cd.notes, cd.payment, cd.date, cd.order_follow_up, cd.no_1, cd.no_2,
+            cd.notes, cd.payment, cd.date, cd.order_follow_up,
+            COALESCE(sd.no_1, cd.no_1, 0) AS no_1,
+            COALESCE(sd.no_2, cd.no_2, 0) AS no_2,
             sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
             COALESCE(
                 (
@@ -109,7 +112,9 @@ const Contact = {
             cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
             cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
             COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
-            cd.notes, cd.payment, cd.date, cd.order_follow_up, cd.no_1, cd.no_2,
+            cd.notes, cd.payment, cd.date, cd.order_follow_up,
+            COALESCE(sd.no_1, cd.no_1, 0) AS no_1,
+            COALESCE(sd.no_2, cd.no_2, 0) AS no_2,
             sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
             COALESCE(
                 (
@@ -211,7 +216,9 @@ const Contact = {
         `SELECT c.*, cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
      cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
      COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
-     cd.notes, cd.payment, cd.date, cd.order_follow_up,cd.no_1,cd.no_2,
+     cd.notes, cd.payment, cd.date, cd.order_follow_up,
+     COALESCE(sd.no_1, cd.no_1, 0) AS no_1,
+     COALESCE(sd.no_2, cd.no_2, 0) AS no_2,
      sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date
      FROM contacts c
      LEFT JOIN customer_details cd ON c.id = cd.contact_id
@@ -368,7 +375,7 @@ const Contact = {
           'c.contact_name', 'c.code', 'c.email', 'c.address',
           'cd.billing_address', 'cd.delivery_address', 'cd.gstin', 'cd.pan',
           'cd.place_of_supply', 'cd.notes', 'cd.no_1', 'cd.no_2',
-          'sd.division', 'sd.note'
+          'sd.division', 'sd.note', 'sd.no_1', 'sd.no_2'
         ];
 
         // For each term: (field1 LIKE term OR field2 LIKE term OR ...)
@@ -407,7 +414,9 @@ const Contact = {
         cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
         cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
         COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
-        cd.notes, cd.payment, cd.date, cd.order_follow_up, cd.no_1, cd.no_2,
+        cd.notes, cd.payment, cd.date, cd.order_follow_up,
+        COALESCE(sd.no_1, cd.no_1, 0) AS no_1,
+        COALESCE(sd.no_2, cd.no_2, 0) AS no_2,
         sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
         COALESCE(
           (

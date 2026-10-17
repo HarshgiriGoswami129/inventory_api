@@ -95,50 +95,72 @@ const Receipt = {
         }
       }
 
-      // Step 4: NEW CASCADING PAYMENT LOGIC
-      if (customer_id && amount && amount > 0) {
+      // Step 4: OPENING DUE & INVOICE CASCADING SETTLEMENT LOGIC
+      if ((customer_id || contact_id) && amount && amount > 0) {
         let remainingAmount = parseFloat(amount);
 
-        // Get all invoices for this customer with remaining_amount > 0, ordered by most recent first
-        const [invoices] = await connection.query(
-          `SELECT id, remaining_amount 
-         FROM invoices 
-         WHERE customer_id = ? AND remaining_amount > 0 
-         ORDER BY id DESC`,
-          [customer_id]
-        );
-
-        // Loop through invoices and apply payment cascading
-        for (const invoice of invoices) {
-          if (remainingAmount <= 0) break;
-
-          const invoiceRemaining = parseFloat(invoice.remaining_amount);
-
-          if (remainingAmount >= invoiceRemaining) {
-            // Payment covers this invoice completely
-            await connection.query(
-              'UPDATE invoices SET remaining_amount = 0 WHERE id = ?',
-              [invoice.id]
-            );
-            remainingAmount -= invoiceRemaining;
-          } else {
-            // Partial payment on this invoice
-            await connection.query(
-              'UPDATE invoices SET remaining_amount = remaining_amount - ? WHERE id = ?',
-              [remainingAmount, invoice.id]
-            );
-            remainingAmount = 0;
-          }
+        // Resolve customer code
+        let customerCode = customer_id;
+        if (!customerCode && contact_id) {
+          const [cRows] = await connection.query('SELECT code FROM contacts WHERE id = ? LIMIT 1', [contact_id]);
+          if (cRows.length > 0) customerCode = cRows[0].code;
         }
 
-        // If there's still remaining amount after all invoices are paid,
-        // it becomes customer credit (you can store this in customer_details if needed)
-        if (remainingAmount > 0) {
-          // Optional: Store as credit balance in customer_details
-          // await connection.query(
-          //   'UPDATE customer_details SET credit_balance = COALESCE(credit_balance, 0) + ? WHERE contact_id = ?',
-          //   [remainingAmount, contact_id]
-          // );
+        if (customerCode) {
+          // Get customer total balance before this receipt (Step 3 already subtracted amount)
+          const [cDetailRows] = await connection.query(
+            'SELECT cd.total_amount FROM contacts c LEFT JOIN customer_details cd ON c.id = cd.contact_id WHERE c.code = ? LIMIT 1',
+            [customerCode]
+          );
+          const currentTotal = parseFloat(cDetailRows[0]?.total_amount) || 0;
+          const previousTotal = currentTotal + parseFloat(amount);
+
+          // Get total remaining balance on all unpaid invoices
+          const [invSumRows] = await connection.query(
+            'SELECT COALESCE(SUM(remaining_amount), 0) AS total_inv_due FROM invoices WHERE customer_id = ? AND remaining_amount > 0',
+            [customerCode]
+          );
+          const totalInvoiceDue = parseFloat(invSumRows[0]?.total_inv_due) || 0;
+
+          // Unsettled Opening Due is the portion of customer balance not covered by invoices
+          const unsettledOpeningDue = Math.max(0, previousTotal - totalInvoiceDue);
+
+          // 1. Settle Opening Due FIRST
+          if (unsettledOpeningDue > 0) {
+            const openingSettled = Math.min(remainingAmount, unsettledOpeningDue);
+            remainingAmount -= openingSettled;
+          }
+
+          // 2. Only remaining payment amount goes to invoices in FIFO order (oldest first)
+          if (remainingAmount > 0) {
+            const [invoices] = await connection.query(
+              `SELECT id, remaining_amount 
+               FROM invoices 
+               WHERE customer_id = ? AND remaining_amount > 0 
+               ORDER BY invoice_date ASC, id ASC`,
+              [customerCode]
+            );
+
+            for (const invoice of invoices) {
+              if (remainingAmount <= 0) break;
+
+              const invoiceRemaining = parseFloat(invoice.remaining_amount);
+
+              if (remainingAmount >= invoiceRemaining) {
+                await connection.query(
+                  'UPDATE invoices SET remaining_amount = 0 WHERE id = ?',
+                  [invoice.id]
+                );
+                remainingAmount -= invoiceRemaining;
+              } else {
+                await connection.query(
+                  'UPDATE invoices SET remaining_amount = remaining_amount - ? WHERE id = ?',
+                  [remainingAmount, invoice.id]
+                );
+                remainingAmount = 0;
+              }
+            }
+          }
         }
       }
 
