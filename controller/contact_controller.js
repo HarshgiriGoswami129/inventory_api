@@ -55,7 +55,7 @@ const contactController = {
   // Paginated getAllContacts with multi-term search and type filter
   getAllContacts: async (req, res) => {
     try {
-      const { page = 1, limit = 10, search = '', type = '' } = req.body;
+      const { page = 1, limit = 10000, search = '', type = '' } = req.body;
 
       const result = await Contact.findAllPaginated({
         page: parseInt(page),
@@ -70,6 +70,24 @@ const contactController = {
         pagination: result.pagination
       });
     } catch (error) {
+      res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    }
+  },
+  getContactById: async (req, res) => {
+    try {
+      const id = req.params.id || req.body.id;
+      if (!id) {
+        return res.status(400).json({ success: false, message: 'Contact ID is required.' });
+      }
+
+      const contact = await Contact.findById(id);
+      if (!contact) {
+        return res.status(404).json({ success: false, message: 'Contact not found' });
+      }
+
+      res.status(200).json({ success: true, data: contact });
+    } catch (error) {
+      console.error('Get Contact By ID Error:', error);
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }
   },

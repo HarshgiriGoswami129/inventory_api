@@ -29,4 +29,17 @@ router.post('/deleteAllSuppliers', [authMiddleware, checkPermission('contacts')]
 // Batch delete multiple contacts by IDs
 router.post('/batchDeleteContacts', [authMiddleware, checkPermission('contacts')], contactController.batchDeleteContacts);
 
+// Get contact by ID (supports POST /contacts/:id, GET /contacts/:id, and POST /contacts/getById)
+router.post('/getById', [authMiddleware, checkPermission(['contacts', 'customers', 'suppliers'])], contactController.getContactById);
+router.post('/:id', [authMiddleware, checkPermission(['contacts', 'customers', 'suppliers'])], contactController.getContactById);
+router.get('/:id', [authMiddleware, checkPermission(['contacts', 'customers', 'suppliers'])], contactController.getContactById);
+router.put('/:id', [authMiddleware, checkPermission(['contacts', 'customers', 'suppliers']), upload.single('image')], (req, res, next) => {
+  req.body.id = req.params.id;
+  contactController.updateContact(req, res, next);
+});
+router.delete('/:id', [authMiddleware, checkPermission(['contacts', 'customers', 'suppliers'])], (req, res, next) => {
+  req.body.id = req.params.id;
+  contactController.deleteContact(req, res, next);
+});
+
 module.exports = router;

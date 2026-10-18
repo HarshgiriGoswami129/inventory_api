@@ -361,7 +361,7 @@ const Contact = {
   },
 
   // Paginated search with multi-term support and type filter
-  findAllPaginated: async ({ page = 1, limit = 10, search = '', type = '' }) => {
+  findAllPaginated: async ({ page = 1, limit = 10000, search = '', type = '' }) => {
     const offset = (page - 1) * limit;
 
     let whereConditions = [];

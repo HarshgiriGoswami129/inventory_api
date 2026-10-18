@@ -7,6 +7,19 @@ const User = {
     return rows[0];
   },
 
+  findByUsername: async (username) => {
+    const [rows] = await db.query('SELECT * FROM users WHERE user_name = ?', [username]);
+    return rows[0];
+  },
+
+  findByUsernameOrEmail: async (identifier) => {
+    const [rows] = await db.query(
+      'SELECT * FROM users WHERE email = ? OR user_name = ? LIMIT 1',
+      [identifier, identifier]
+    );
+    return rows[0];
+  },
+
   findById: async (id) => {
     const query = `
       SELECT id, user_name, email

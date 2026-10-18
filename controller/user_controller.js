@@ -63,23 +63,38 @@ const userController = {
       // 'permissions' is now expected in the body, e.g., ["receipts", "payments"]
       const { user_name, email, password, permissions } = req.body;
 
-      if (!user_name || !email || !password) {
+      if (!user_name || !password) {
         return res.status(400).json({
           success: false,
-          message: 'Username, email, and password are required.'
+          message: 'Username and password are required.'
         });
       }
 
-      const existingUser = await User.findByEmail(email);
-      if (existingUser) {
+      const trimmedUsername = user_name.trim();
+
+      // Check if username already exists
+      const existingUserByName = await User.findByUsername(trimmedUsername);
+      if (existingUserByName) {
         return res.status(409).json({
           success: false,
-          message: 'An account with this email already exists.'
+          message: 'An account with this username already exists.'
         });
+      }
+
+      // If email is provided, validate it's unique; otherwise fallback to unique safe local email
+      const cleanEmail = email && email.trim() ? email.trim() : `${trimmedUsername}@local`;
+      if (email && email.trim()) {
+        const existingUserByEmail = await User.findByEmail(cleanEmail);
+        if (existingUserByEmail) {
+          return res.status(409).json({
+            success: false,
+            message: 'An account with this email already exists.'
+          });
+        }
       }
 
       // Pass permissions to the create function
-      const newUser = await User.create({ user_name, email, password, permissions });
+      const newUser = await User.create({ user_name: trimmedUsername, email: cleanEmail, password, permissions });
 
       // Log user creation (if req.user exists, otherwise use created user's info)
       if (req.user) {
@@ -87,7 +102,7 @@ const userController = {
           model_name: 'users',
           action_type: 'CREATE',
           record_id: newUser.id,
-          description: `Created user ${user_name}`
+          description: `Created user ${trimmedUsername}`
         });
       }
 
@@ -104,7 +119,7 @@ const userController = {
       if (error.code === 'ER_DUP_ENTRY') {
         return res.status(409).json({
           success: false,
-          message: 'An account with this email already exists.'
+          message: 'An account with this username or email already exists.'
         });
       }
 
@@ -137,9 +152,13 @@ const userController = {
       }
 
       const updateData = {};
-      if (user_name !== undefined) updateData.user_name = user_name;
-      if (email !== undefined) updateData.email = email;
-      if (password !== undefined) updateData.password = password;
+      if (user_name !== undefined) updateData.user_name = user_name.trim();
+      if (email !== undefined) {
+        updateData.email = email && email.trim()
+          ? email.trim()
+          : (user_name ? `${user_name.trim()}@local` : `${existingUser.user_name}@local`);
+      }
+      if (password !== undefined && password) updateData.password = password;
       if (permissions !== undefined) updateData.permissions = permissions;
 
       const updatedUser = await User.update(id, updateData);
@@ -229,16 +248,17 @@ const userController = {
   // --- MODIFIED login function ---
   login: async (req, res) => {
     try {
-      const { email, password } = req.body;
+      const { email, username, identifier: customIdentifier, password } = req.body;
+      const identifier = (customIdentifier || username || email || '').trim();
 
-      if (!email || !password) {
+      if (!identifier || !password) {
         return res.status(400).json({
           success: false,
-          message: 'Email and password are required.'
+          message: 'Username/Email and password are required.'
         });
       }
 
-      const user = await User.findByEmail(email);
+      const user = await User.findByUsernameOrEmail(identifier);
       if (!user) {
         return res.status(401).json({ success: false, message: 'Invalid credentials.' });
       }

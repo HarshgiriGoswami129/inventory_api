@@ -56,6 +56,28 @@ const Payment = {
       if (contact_id) {
         const updateSupplierQuery = 'UPDATE supplier_details SET total_amount = total_amount - ? WHERE contact_id = ?';
         await connection.query(updateSupplierQuery, [amount, contact_id]);
+
+        // If payment account is NO_1 or NO_2, deduct from supplier_details.no_1 or no_2
+        if (account_id) {
+          const [accountRows] = await connection.query(
+            'SELECT account_name FROM accounts WHERE id = ? LIMIT 1',
+            [account_id]
+          );
+          if (accountRows.length > 0) {
+            const accountName = accountRows[0].account_name;
+            if (accountName === 'NO_1') {
+              await connection.query(
+                'UPDATE supplier_details SET no_1 = COALESCE(no_1, 0) - ? WHERE contact_id = ?',
+                [amount, contact_id]
+              );
+            } else if (accountName === 'NO_2') {
+              await connection.query(
+                'UPDATE supplier_details SET no_2 = COALESCE(no_2, 0) - ? WHERE contact_id = ?',
+                [amount, contact_id]
+              );
+            }
+          }
+        }
       }
 
       // 4. FIFO: Settle Supplier Opening Due first, then oldest purchase invoices
