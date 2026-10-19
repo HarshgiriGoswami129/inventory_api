@@ -826,10 +826,13 @@ const Invoice = {
     return result.affectedRows;
   },
 
-  undoInvoice: async (id, undoByUserId = null, undoReason = null) => {
-    const connection = await db.getConnection();
+  undoInvoice: async (id, undoByUserId = null, undoReason = null, existingConnection = null) => {
+    const connection = existingConnection || await db.getConnection();
+    const shouldManageTransaction = !existingConnection;
     try {
-      await connection.beginTransaction();
+      if (shouldManageTransaction) {
+        await connection.beginTransaction();
+      }
 
       const [invoiceRows] = await connection.query(
         `SELECT id, invoice_number, invoice_date, customer_id, reference_no_1, reference_no_2, grand_total
@@ -838,7 +841,7 @@ const Invoice = {
       );
 
       if (invoiceRows.length === 0) {
-        await connection.rollback();
+        if (shouldManageTransaction) await connection.rollback();
         return { success: false, message: 'Invoice not found' };
       }
 
@@ -1000,9 +1003,13 @@ const Invoice = {
       }
 
       // 4) Finally hard delete invoice row (children auto-delete via FK)
+      await connection.query('DELETE FROM invoice_items WHERE invoice_id = ?', [id]);
       const [deleteResult] = await connection.query('DELETE FROM invoices WHERE id = ?', [id]);
 
-      await connection.commit();
+      if (shouldManageTransaction) {
+        await connection.commit();
+      }
+
       return {
         success: true,
         deletedCount: deleteResult.affectedRows,
@@ -1011,10 +1018,14 @@ const Invoice = {
         invoice_number: invoice.invoice_number
       };
     } catch (error) {
-      await connection.rollback();
+      if (shouldManageTransaction) {
+        await connection.rollback();
+      }
       throw error;
     } finally {
-      connection.release();
+      if (shouldManageTransaction) {
+        connection.release();
+      }
     }
   },
 

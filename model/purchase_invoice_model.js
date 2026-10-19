@@ -597,41 +597,52 @@ const PurchaseInvoice = {
     return rows;
   },
 
-  undoInvoice: async (id, undoByUserId = null, undoReason = null) => {
-    const connection = await db.getConnection();
+  undoInvoice: async (id, undoByUserId = null, undoReason = null, existingConnection = null) => {
+    const connection = existingConnection || await db.getConnection();
+    const shouldManageTransaction = !existingConnection;
     try {
-      await connection.beginTransaction();
+      if (shouldManageTransaction) {
+        await connection.beginTransaction();
+      }
 
       // 1. Get the purchase invoice details
       const [invoiceRows] = await connection.query(
-        `SELECT id, invoice_number, issue_date, code_user, total_amount
+        `SELECT id, invoice_number, issue_date, code_user, user, total_amount, balance_due
          FROM purchase_invoices WHERE id = ? LIMIT 1 FOR UPDATE`,
         [id]
       );
 
       if (invoiceRows.length === 0) {
-        await connection.rollback();
+        if (shouldManageTransaction) await connection.rollback();
         return { success: false, message: 'Purchase invoice not found' };
       }
 
       const invoice = invoiceRows[0];
+      const totalAmount = parseFloat(invoice.total_amount) || 0;
+      const balanceDue = parseFloat(invoice.balance_due) || 0;
+
+      // Check if payment was made against this invoice
+      if (totalAmount > 0 && balanceDue < totalAmount) {
+        if (shouldManageTransaction) await connection.rollback();
+        throw new Error('Cannot undo: A payment has already been recorded against this purchase invoice.');
+      }
 
       // 2. Get all line items for this invoice
       const [items] = await connection.query(
-        `SELECT code, total_psc, net_kg, total_kg
+        `SELECT id, item_code, code, total_psc, net_kg, total_kg, stock_kg
          FROM purchase_invoice_items WHERE invoice_id = ? FOR UPDATE`,
         [id]
       );
 
-      // 3. Reverse stock for each item (DEBIT - remove stock that was added)
+      // 3. Reverse stock for each item (remove stock that was added during invoice creation)
       for (const item of items) {
-        const itemCode = item.code;
+        const itemCode = item.code || item.item_code;
         const totalPcs = parseFloat(item.total_psc) || 0;
-        const totalKg = parseFloat(item.net_kg || item.total_kg) || 0;
+        const totalKg = parseFloat(item.net_kg || item.total_kg || item.stock_kg) || 0;
 
-        if (!itemCode || totalPcs <= 0) continue;
+        if (!itemCode || (totalPcs <= 0 && totalKg <= 0)) continue;
 
-        // Reverse the stock quantity and kg
+        // 3.1 Reverse Master Items Stock
         await connection.query(
           `UPDATE master_items
            SET stock_quantity = stock_quantity - ?,
@@ -640,7 +651,7 @@ const PurchaseInvoice = {
           [totalPcs, totalKg, itemCode]
         );
 
-        // Insert stock history (DEBIT - stock out via undo purchase invoice)
+        // 3.2 Insert Stock History (DEBIT - stock reversed via undo purchase invoice)
         try {
           const [mRows] = await connection.query(
             'SELECT item_code FROM master_items WHERE item_code = ? LIMIT 1',
@@ -658,7 +669,7 @@ const PurchaseInvoice = {
                 totalPcs,
                 totalKg,
                 new Date(),
-                undoReason || `Undo purchase invoice ${invoice.invoice_number || id}`,
+                undoReason || `Undo purchase invoice #${invoice.invoice_number || id}`,
                 undoByUserId || null
               ]
             );
@@ -666,40 +677,92 @@ const PurchaseInvoice = {
         } catch (historyErr) {
           console.log('Stock history undo insert skipped:', historyErr.message);
         }
+
+        // 3.3 Reverse Box Inventory
+        try {
+          const boxQty = totalPcs > 0 ? totalPcs : totalKg;
+          await connection.query(
+            'UPDATE box_inventory SET box_quantity = box_quantity - ? WHERE box_name = ?',
+            [boxQty, itemCode]
+          );
+        } catch (boxErr) {
+          console.log('Box inventory reversal skipped:', boxErr.message);
+        }
+
+        // 3.4 Reverse Shrink Inventory
+        try {
+          const shrinkQty = totalKg > 0 ? totalKg : totalPcs;
+          await connection.query(
+            'UPDATE shrink_inventory SET shrink_quantity = shrink_quantity - ? WHERE shrink_name = ?',
+            [shrinkQty, itemCode]
+          );
+        } catch (shrinkErr) {
+          console.log('Shrink inventory reversal skipped:', shrinkErr.message);
+        }
+
+        // 3.5 Reverse LD Inventory
+        try {
+          const ldQty = totalKg > 0 ? totalKg : totalPcs;
+          await connection.query(
+            'UPDATE ld_inventory SET ld_quantity = ld_quantity - ? WHERE ld_name = ?',
+            [ldQty, itemCode]
+          );
+        } catch (ldErr) {
+          console.log('LD inventory reversal skipped:', ldErr.message);
+        }
+
+        // 3.6 Reverse Supplier Inventory Items (inventory_items)
+        const userVal = invoice.code_user || invoice.user;
+        if (userVal) {
+          try {
+            await connection.query(
+              `UPDATE inventory_items 
+               SET stock_quantity = stock_quantity - ?,
+                   total_kg = total_kg - ?
+               WHERE (code_user = ? OR (item_code = ? AND user = ?))`,
+              [totalPcs, totalKg, userVal, itemCode, userVal]
+            );
+          } catch (invErr) {
+            console.log('Supplier inventory items reversal skipped:', invErr.message);
+          }
+        }
       }
 
-      // 4. Reverse supplier's total amount (if supplier_details table exists)
-      const codeUser = invoice.code_user;
-      const totalAmount = parseFloat(invoice.total_amount) || 0;
+      // 4. Reverse supplier's total amount in supplier_details
+      const rawSupplierCode = invoice.code_user || invoice.user || '';
+      const supplierCodeVal = String(rawSupplierCode).trim();
+      const baseCode = supplierCodeVal.split('_')[0].trim();
 
-      if (codeUser && totalAmount > 0) {
-        const [contactRows] = await connection.query(
-          'SELECT id FROM contacts WHERE code = ? LIMIT 1',
-          [codeUser]
-        );
+      if (supplierCodeVal && totalAmount > 0) {
+        try {
+          const [contactRows] = await connection.query(
+            'SELECT id FROM contacts WHERE code = ? OR code = ? OR contact_name = ? OR contact_name = ? LIMIT 1',
+            [supplierCodeVal, baseCode, supplierCodeVal, baseCode]
+          );
 
-        if (contactRows.length > 0) {
-          const contactId = contactRows[0].id;
-
-          // Try to update supplier_details if it exists
-          try {
+          if (contactRows.length > 0) {
+            const contactId = contactRows[0].id;
             await connection.query(
               `UPDATE supplier_details
                SET total_amount = COALESCE(total_amount, 0) - ?
                WHERE contact_id = ?`,
               [totalAmount, contactId]
             );
-          } catch (supplierError) {
-            // If supplier_details table doesn't exist, just log and continue
-            console.log('Note: supplier_details table may not exist, skipping supplier total update');
+            console.log(`Reverted supplier_details total_amount by -${totalAmount} for contact_id ${contactId}`);
           }
+        } catch (supplierError) {
+          console.log('Supplier details total reversal skipped:', supplierError.message);
         }
       }
 
-      // 5. Finally hard delete the purchase invoice (children auto-delete via FK)
+      // 5. Delete line items first, then the purchase invoice
+      await connection.query('DELETE FROM purchase_invoice_items WHERE invoice_id = ?', [id]);
       const [deleteResult] = await connection.query('DELETE FROM purchase_invoices WHERE id = ?', [id]);
 
-      await connection.commit();
+      if (shouldManageTransaction) {
+        await connection.commit();
+      }
+
       return {
         success: true,
         deletedCount: deleteResult.affectedRows,
@@ -707,10 +770,14 @@ const PurchaseInvoice = {
         invoice_number: invoice.invoice_number
       };
     } catch (error) {
-      await connection.rollback();
+      if (shouldManageTransaction) {
+        await connection.rollback();
+      }
       throw error;
     } finally {
-      connection.release();
+      if (shouldManageTransaction) {
+        connection.release();
+      }
     }
   },
 
@@ -735,8 +802,8 @@ const PurchaseInvoice = {
   },
 
   findImagesByInvoiceId: async (invoiceId) => {
-    const [rows] = await db.query('SELECT * FROM purchase_invoice_images WHERE invoice_id = ?', [invoiceId]);
-    return rows;
+    const [rows] = await db.query('SELECT image_url FROM purchase_invoices WHERE id = ?', [invoiceId]);
+    return rows.filter(r => r.image_url).map(r => ({ image_url: r.image_url }));
   },
   findCodeUserByUser: async (user) => {
     const [rows] = await db.query('SELECT code_user FROM inventory_items WHERE user = ?', [user]);

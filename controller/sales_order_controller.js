@@ -3,6 +3,7 @@ const db = require('../config/db');
 const { logUserActivity } = require('../utils/activityLogger');
 const { compareChanges } = require('../utils/compareChanges');
 const SalesLock = require('../model/sales_lock_model');
+const UndoAction = require('../model/undo_action_model');
 
 const salesOrderController = {
   createOrder: async (req, res) => {
@@ -34,7 +35,20 @@ const salesOrderController = {
         record_id: newOrder.id,
         description: 'Created sales order'
       });
-      res.status(201).json({ success: true, data: newOrder });
+      const undoActionId = await UndoAction.recordAction({
+        user_id: req.user?.id,
+        user_name: req.user?.username || req.user?.name,
+        module: 'sales_orders',
+        action_type: 'CREATE_SALES_ORDER',
+        record_id: newOrder.id,
+        record_identifier: `Order #${orderData.order_number || newOrder.id}`,
+        description: `Created Sales Order #${orderData.order_number || newOrder.id}`,
+        action_data: {
+          order_id: newOrder.id,
+          order_number: orderData.order_number
+        }
+      });
+      res.status(201).json({ success: true, data: newOrder, undoActionId });
     } catch (error) {
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }

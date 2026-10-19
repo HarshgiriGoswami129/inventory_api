@@ -2,6 +2,7 @@ const Invoice = require('../model/new_sales_invoice_model');
 const { logUserActivity } = require('../utils/activityLogger');
 const { compareChanges } = require('../utils/compareChanges');
 const SalesLock = require('../model/sales_lock_model');
+const UndoAction = require('../model/undo_action_model');
 
 const invoiceController = {
   createInvoice: async (req, res) => {
@@ -25,7 +26,23 @@ const invoiceController = {
         record_id: newInvoice.id,
         description: `Created invoice ${req.body.invoice_number || ''}`
       });
-      res.status(201).json({ success: true, message: 'Invoice created successfully', data: newInvoice });
+
+      const undoActionId = await UndoAction.recordAction({
+        user_id: req.user?.id,
+        user_name: req.user?.username || req.user?.name,
+        module: 'sales_invoices',
+        action_type: 'CREATE_SALES_INVOICE',
+        record_id: newInvoice.id,
+        record_identifier: `SI #${req.body.invoice_number || newInvoice.id} (${req.body.customer_id || ''})`,
+        description: `Created Sales Invoice #${req.body.invoice_number || newInvoice.id}`,
+        action_data: {
+          invoice_id: newInvoice.id,
+          invoice_number: req.body.invoice_number,
+          customer_id: req.body.customer_id
+        }
+      });
+
+      res.status(201).json({ success: true, message: 'Invoice created successfully', data: newInvoice, undoActionId });
     } catch (error) {
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }

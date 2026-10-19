@@ -2,6 +2,7 @@ const PurchaseInvoice = require('../model/purchase_invoice_model');
 const { logUserActivity } = require('../utils/activityLogger');
 const { compareChanges } = require('../utils/compareChanges');
 const SalesLock = require('../model/sales_lock_model');
+const UndoAction = require('../model/undo_action_model');
 
 // Helper function to process invoice items with new calculation logic
 const processInvoiceItems = (items = []) => {
@@ -96,7 +97,23 @@ const purchaseInvoiceController = {
         record_id: newInvoice.id,
         description: `Created purchase invoice ${invoiceData.invoice_number || ''}`
       });
-      res.status(201).json({ success: true, message: "Invoice created successfully.", data: newInvoice });
+
+      const undoActionId = await UndoAction.recordAction({
+        user_id: req.user?.id,
+        user_name: req.user?.username || req.user?.name,
+        module: 'purchase_invoices',
+        action_type: 'CREATE_PURCHASE_INVOICE',
+        record_id: newInvoice.id,
+        record_identifier: `PI #${invoiceData.invoice_number || newInvoice.id} (${invoiceData.user || ''})`,
+        description: `Created Purchase Invoice #${invoiceData.invoice_number || newInvoice.id}`,
+        action_data: {
+          invoice_id: newInvoice.id,
+          invoice_number: invoiceData.invoice_number,
+          user: invoiceData.user
+        }
+      });
+
+      res.status(201).json({ success: true, message: "Invoice created successfully.", data: newInvoice, undoActionId });
     } catch (error) {
       console.error('Error creating invoice:', error);
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });

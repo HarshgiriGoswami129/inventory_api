@@ -3,6 +3,7 @@ const db = require('../config/db');
 const { logUserActivity } = require('../utils/activityLogger');
 const { compareChanges } = require('../utils/compareChanges');
 const SalesLock = require('../model/sales_lock_model');
+const UndoAction = require('../model/undo_action_model');
 
 const toNum = (value) => {
   const n = parseFloat(value);
@@ -474,6 +475,121 @@ const inventoryController = {
     }
   },
 
+  batchDuplicateItems: async (req, res) => {
+    try {
+      const isLocked = await SalesLock.isLocked('inventory_items');
+      if (isLocked) {
+        return res.status(403).json({
+          success: false,
+          message: 'Inventory Items are currently locked. Cannot duplicate items.'
+        });
+      }
 
+      const { items, targetCustomer } = req.body;
+      if (!targetCustomer || !targetCustomer.trim()) {
+        return res.status(400).json({ success: false, message: 'Target contact code is required.' });
+      }
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ success: false, message: 'Items array cannot be empty.' });
+      }
+
+      const trimmedTarget = targetCustomer.trim();
+      const createdBy = req.user?.id || null;
+      const createdIds = [];
+
+      const connection = await db.getConnection();
+      try {
+        await connection.beginTransaction();
+
+        for (const item of items) {
+          const item_code = item.item_code || item.itemCode || '';
+          const cleanFinish = item.finish ? String(item.finish).trim().replace(/\s+/g, '') : '';
+          const code_user = cleanFinish
+            ? `${item_code}${trimmedTarget}_${cleanFinish}`
+            : `${item_code}${trimmedTarget}`;
+
+          const hasBaseRateInput = Object.prototype.hasOwnProperty.call(item, 'base_rate_pcs');
+          const baseRatePcs = hasBaseRateInput ? toNum(item.base_rate_pcs) : toNum(item.rate_pcs || item.ratePcs);
+          const { calculatedRatePcs, normalizedAdjustment } = applyRateAdjustment({
+            baseRate: baseRatePcs,
+            rawAdjustment: item.rate_adjustment || item.rateAdjustment || item.rate_adjustment_display || item.rateAdjustmentDisplay
+          });
+
+          const itemData = {
+            item_code,
+            user: trimmedTarget,
+            code_user,
+            stock_quantity: toNum(item.stock_quantity ?? item.stockQuantity),
+            finish: item.finish || null,
+            scrap: toNum(item.scrap),
+            labour: toNum(item.labour),
+            description: item.description || '',
+            kg_dzn: toNum(item.kg_dzn ?? item.kgDzn),
+            pcs_box: parseInt(item.pcs_box ?? item.pcsBox, 10) || 0,
+            box_ctn: parseInt(item.box_ctn ?? item.boxCtn, 10) || 0,
+            pcs_ctn: parseInt(item.pcs_ctn ?? item.pcsCtn, 10) || 0,
+            kg_box: toNum(item.kg_box ?? item.kgBox),
+            empty_wt: toNum(item.empty_wt ?? item.emptyWt),
+            actual_wt: toNum(item.actual_wt ?? item.actualWt),
+            box_name: item.box_name || item.boxName || null,
+            shrink_name: item.shrink_name || item.shrinkName || null,
+            ld_name: item.ld_name || item.ldName || null,
+            rate_adjustment: normalizedAdjustment,
+            base_rate_pcs: baseRatePcs,
+            rate_pcs: calculatedRatePcs,
+            rate_kg: toNum(item.rate_kg ?? item.rateKg),
+            total_kg: toNum(item.total_kg ?? item.totalKg),
+            actual_net_kg: toNum(item.actual_net_kg ?? item.actualNetKg),
+            pic_or_kg: (item.orderPerPicsKg === 'per_kg' || item.pic_or_kg === 1) ? 1 : 0,
+            created_by: createdBy,
+          };
+
+          normalizeOrderModeFields(itemData);
+
+          const [insertRes] = await connection.query('INSERT INTO inventory_items SET ?', [itemData]);
+          createdIds.push(insertRes.insertId);
+        }
+
+        await connection.commit();
+      } catch (err) {
+        await connection.rollback();
+        throw err;
+      } finally {
+        connection.release();
+      }
+
+      // Record Undo Action
+      const undoActionId = await UndoAction.recordAction({
+        user_id: req.user?.id,
+        user_name: req.user?.username || req.user?.name,
+        module: 'inventory_items',
+        action_type: 'DUPLICATE_ITEMS',
+        record_identifier: `${createdIds.length} items for ${trimmedTarget}`,
+        description: `Duplicated ${createdIds.length} items for "${trimmedTarget}"`,
+        action_data: {
+          created_item_ids: createdIds,
+          target_customer: trimmedTarget,
+          count: createdIds.length,
+        },
+      });
+
+      await logUserActivity(req, {
+        model_name: 'inventory_items',
+        action_type: 'CREATE',
+        record_id: createdIds[0] || null,
+        description: `Batch duplicated ${createdIds.length} items for contact ${trimmedTarget}`,
+      });
+
+      res.status(201).json({
+        success: true,
+        count: createdIds.length,
+        undoActionId,
+        message: `Successfully duplicated ${createdIds.length} items for Contact "${trimmedTarget}".`,
+      });
+    } catch (error) {
+      console.error('Error in batchDuplicateItems:', error);
+      res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    }
+  },
 };
 module.exports = inventoryController;

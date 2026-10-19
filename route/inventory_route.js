@@ -17,6 +17,8 @@ router.post('/deleteInventory', checkPermission(permission), inventoryController
 router.post('/batchUpdateInventory', checkPermission(permission), inventoryController.batchUpdateItems);
 
 router.post('/batchDeleteInventory', checkPermission(permission), inventoryController.batchDeleteItems);
+router.post('/batchDuplicate', checkPermission(permission), inventoryController.batchDuplicateItems);
+router.post('/batch-duplicate', checkPermission(permission), inventoryController.batchDuplicateItems);
 
 router.post('/searchInventoryByItemCode', checkPermission(permission), inventoryController.searchItemsByItemCode);
 router.post('/getItemCodes', checkPermission(permission), inventoryController.getAllItemCodes);

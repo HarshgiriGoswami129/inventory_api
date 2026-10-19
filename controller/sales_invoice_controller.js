@@ -3,6 +3,7 @@ const db = require('../config/db');
 const { logUserActivity } = require('../utils/activityLogger');
 const { compareChanges } = require('../utils/compareChanges');
 const SalesLock = require('../model/sales_lock_model');
+const UndoAction = require('../model/undo_action_model');
 
 const salesInvoiceController = {
   createInvoice: async (req, res) => {
@@ -71,11 +72,30 @@ const salesInvoiceController = {
         );
       }
 
-      // 3. Return success response
+      // 3. Record Undo Action
+      const undoActionId = await UndoAction.recordAction({
+        user_id: req.user?.id,
+        user_name: req.user?.username || req.user?.name,
+        module: 'sales_invoices',
+        action_type: 'CREATE_SALES_INVOICE',
+        record_id: newInvoice.id,
+        record_identifier: `Invoice #${data.invoice_no || newInvoice.id} (${data.customer || ''})`,
+        description: `Created Sales Invoice #${data.invoice_no || newInvoice.id}`,
+        action_data: {
+          invoice_id: newInvoice.id,
+          invoice_no: data.invoice_no,
+          item_code: data.item_code,
+          total_pcs: data.total_pcs,
+          net_kg: data.net_kg
+        }
+      });
+
+      // 4. Return success response
       return res.status(201).json({
         success: true,
         message: 'Sales invoice created and master stock updated successfully.',
         data: newInvoice,
+        undoActionId,
       });
     } catch (error) {
       console.error('Create Invoice Error:', error);
