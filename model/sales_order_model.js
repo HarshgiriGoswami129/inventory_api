@@ -59,13 +59,22 @@ const SalesOrder = {
     // Protect initial_qty and invoice_status from manual edits
     delete orderData.initial_qty;
     delete orderData.invoice_status;
-    const fields = Object.keys(orderData);
-    const setClause = fields.map(field => `${field} = ?`).join(', ');
-    const values = [...fields.map(field => orderData[field]), id];
 
+    // Filter out undefined keys so we never accidentally overwrite existing DB values with NULL
+    const cleanData = {};
+    for (const [key, val] of Object.entries(orderData)) {
+      if (val !== undefined) {
+        cleanData[key] = val;
+      }
+    }
+
+    const fields = Object.keys(cleanData);
     if (fields.length === 0) {
       return 0; // Nothing to update
     }
+
+    const setClause = fields.map(field => `${field} = ?`).join(', ');
+    const values = [...fields.map(field => cleanData[field]), id];
 
     const query = `UPDATE sales_orders SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
     const [result] = await db.query(query, values);

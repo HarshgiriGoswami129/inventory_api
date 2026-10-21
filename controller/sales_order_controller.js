@@ -88,11 +88,20 @@ const salesOrderController = {
       }
 
       // Map incoming fields to match model expectations
-      const { date, ...restData } = orderData;
-      const mappedData = {
-        ...restData,
-        order_date: date || restData.order_date,
-      };
+      const mappedData = { ...orderData };
+      if (orderData.date !== undefined) {
+        mappedData.order_date = orderData.date;
+        delete mappedData.date;
+      } else if (orderData.order_date !== undefined) {
+        mappedData.order_date = orderData.order_date;
+      }
+
+      // Filter out undefined fields
+      Object.keys(mappedData).forEach((key) => {
+        if (mappedData[key] === undefined) {
+          delete mappedData[key];
+        }
+      });
       const affectedRows = await SalesOrder.update(id, mappedData);
       if (affectedRows === 0) {
         return res.status(404).json({ success: false, message: 'Sales order not found' });
@@ -174,11 +183,20 @@ const salesOrderController = {
         }
 
         // Map incoming fields to match model expectations
-        const { date, ...restFields } = fieldsToUpdate;
-        const mappedData = {
-          ...restFields,
-          order_date: date || restFields.order_date,
-        };
+        const mappedData = { ...fieldsToUpdate };
+        if (fieldsToUpdate.date !== undefined) {
+          mappedData.order_date = fieldsToUpdate.date;
+          delete mappedData.date;
+        } else if (fieldsToUpdate.order_date !== undefined) {
+          mappedData.order_date = fieldsToUpdate.order_date;
+        }
+
+        // Filter out undefined fields
+        Object.keys(mappedData).forEach((key) => {
+          if (mappedData[key] === undefined) {
+            delete mappedData[key];
+          }
+        });
         try {
           // Fetch old record before updating
           const oldRecord = await SalesOrder.findById(id);
