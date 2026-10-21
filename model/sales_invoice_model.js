@@ -136,43 +136,64 @@ const SalesInvoice = {
 
     const [salesOrders] = await db.query(salesOrderQuery, [customerId]);
 
-
     // If we didn't find any sales orders, we can stop here.
     if (salesOrders.length === 0) {
       return [];
     }
 
-    // Query 2: Get description, pic_or_kg, kg_dzn, empty_wt, actual_wt, box_name, shrink_name, ld_name from inventory_items using code_user or fallback item_code
+    const searchCode = code_user || customerId || "";
+    const cleanItemCode = searchCode.replace(/[^A-Za-z0-9]/g, "").substring(0, 7);
+    const userCode = searchCode.length > 7 ? searchCode.substring(7) : "";
+
+    // Query 2: Get description, pic_or_kg, kg_dzn, empty_wt, actual_wt, box_name, shrink_name, ld_name, rate_adjustment from inventory_items
+    // Prioritize exact customer/user matches over other customers' records
     const descriptionQuery = `
-      SELECT description, pic_or_kg, kg_dzn, empty_wt, actual_wt, box_name, shrink_name, ld_name 
+      SELECT description, pic_or_kg, kg_dzn, empty_wt, actual_wt, box_name, shrink_name, ld_name, rate_adjustment, rate_pcs 
       FROM inventory_items 
       WHERE code_user = ? 
          OR code_user LIKE CONCAT(?, '_%') 
+         OR (item_code = ? AND user = ?)
          OR CONCAT(item_code, user) = ? 
          OR code_user LIKE CONCAT(?, '%')
          OR item_code = ?
+      ORDER BY 
+        CASE 
+          WHEN code_user = ? THEN 1
+          WHEN code_user LIKE CONCAT(?, '_%') THEN 2
+          WHEN item_code = ? AND user = ? THEN 3
+          WHEN CONCAT(item_code, user) = ? THEN 4
+          WHEN item_code = ? THEN 5
+          ELSE 6
+        END ASC,
+        id DESC
       LIMIT 1
     `;
-    const searchCode = code_user || customerId || "";
-    const cleanItemCode = searchCode.replace(/[^A-Za-z0-9]/g, "").substring(0, 7);
 
     const [inventoryRows] = await db.query(descriptionQuery, [
       searchCode,
       searchCode,
+      cleanItemCode, userCode,
       searchCode,
+      searchCode,
+      cleanItemCode,
+      searchCode,
+      searchCode,
+      cleanItemCode, userCode,
       searchCode,
       cleanItemCode
     ]);
 
     // Get the description and weights from the result, or set to null if not found.
-    const description = inventoryRows.length > 0 ? inventoryRows[0].description : null;
-    const picKg = inventoryRows.length > 0 ? inventoryRows[0].pic_or_kg : null;
-    const kg_dzn = inventoryRows.length > 0 ? inventoryRows[0].kg_dzn : null;
-    const empty_wt = inventoryRows.length > 0 ? inventoryRows[0].empty_wt : null;
-    const actual_wt = inventoryRows.length > 0 ? inventoryRows[0].actual_wt : null;
-    const box_name = inventoryRows.length > 0 ? inventoryRows[0].box_name : null;
-    const shrink_name = inventoryRows.length > 0 ? inventoryRows[0].shrink_name : null;
-    const ld_name = inventoryRows.length > 0 ? inventoryRows[0].ld_name : null;
+    const defaultRow = inventoryRows.length > 0 ? inventoryRows[0] : {};
+    const description = defaultRow.description || null;
+    const picKg = defaultRow.pic_or_kg !== undefined ? defaultRow.pic_or_kg : null;
+    const kg_dzn = defaultRow.kg_dzn || null;
+    const empty_wt = defaultRow.empty_wt || null;
+    const actual_wt = defaultRow.actual_wt || null;
+    const box_name = defaultRow.box_name || null;
+    const shrink_name = defaultRow.shrink_name || null;
+    const ld_name = defaultRow.ld_name || null;
+    const rate_adjustment = defaultRow.rate_adjustment || null;
 
     // Add the inventory details to every sales order object
     const finalResult = await Promise.all(salesOrders.map(async (order) => {
@@ -184,34 +205,64 @@ const SalesInvoice = {
       let orderKgDzn = kg_dzn;
       let orderEmptyWt = empty_wt;
       let orderActualWt = actual_wt;
+      let orderRateAdjustment = rate_adjustment;
+      let orderRatePcs = order.rate_pcs || defaultRow.rate_pcs || null;
 
       if (order.finish) {
         const cleanFinish = String(order.finish).trim().replace(/\s+/g, '');
         const specificCodeUser = `${searchCode}_${cleanFinish}`;
         const [specificRows] = await db.query(
-          `SELECT description, pic_or_kg, kg_dzn, empty_wt, actual_wt, box_name, shrink_name, ld_name 
+          `SELECT description, pic_or_kg, kg_dzn, empty_wt, actual_wt, box_name, shrink_name, ld_name, rate_adjustment, rate_pcs 
            FROM inventory_items 
            WHERE code_user = ? 
               OR code_user LIKE CONCAT(?, '_%') 
+              OR (item_code = ? AND user = ? AND finish = ?)
+              OR (item_code = ? AND user = ? AND finish LIKE CONCAT('%', ?, '%'))
               OR (item_code = ? AND finish = ?)
               OR (item_code = ? AND finish LIKE CONCAT('%', ?, '%'))
+           ORDER BY 
+             CASE 
+               WHEN code_user = ? THEN 1
+               WHEN code_user LIKE CONCAT(?, '_%') THEN 2
+               WHEN item_code = ? AND user = ? AND finish = ? THEN 3
+               WHEN item_code = ? AND user = ? AND finish LIKE CONCAT('%', ?, '%') THEN 4
+               WHEN item_code = ? AND finish = ? THEN 5
+               ELSE 6
+             END ASC,
+             id DESC
            LIMIT 1`,
-          [specificCodeUser, specificCodeUser, cleanItemCode, order.finish, cleanItemCode, order.finish]
+          [
+            specificCodeUser,
+            specificCodeUser,
+            cleanItemCode, userCode, order.finish,
+            cleanItemCode, userCode, order.finish,
+            cleanItemCode, order.finish,
+            cleanItemCode, order.finish,
+            specificCodeUser,
+            specificCodeUser,
+            cleanItemCode, userCode, order.finish,
+            cleanItemCode, userCode, order.finish,
+            cleanItemCode, order.finish
+          ]
         );
         if (specificRows.length > 0) {
-          orderBoxName = specificRows[0].box_name || box_name;
-          orderShrinkName = specificRows[0].shrink_name || shrink_name;
-          orderLdName = specificRows[0].ld_name || ld_name;
-          if (specificRows[0].description) orderDesc = specificRows[0].description;
-          if (specificRows[0].pic_or_kg !== null) orderPicKg = specificRows[0].pic_or_kg;
-          if (specificRows[0].kg_dzn !== null) orderKgDzn = specificRows[0].kg_dzn;
-          if (specificRows[0].empty_wt !== null) orderEmptyWt = specificRows[0].empty_wt;
-          if (specificRows[0].actual_wt !== null) orderActualWt = specificRows[0].actual_wt;
+          const sRow = specificRows[0];
+          if (sRow.box_name) orderBoxName = sRow.box_name;
+          if (sRow.shrink_name) orderShrinkName = sRow.shrink_name;
+          if (sRow.ld_name) orderLdName = sRow.ld_name;
+          if (sRow.description) orderDesc = sRow.description;
+          if (sRow.pic_or_kg !== null && sRow.pic_or_kg !== undefined) orderPicKg = sRow.pic_or_kg;
+          if (sRow.kg_dzn !== null && sRow.kg_dzn !== undefined) orderKgDzn = sRow.kg_dzn;
+          if (sRow.empty_wt !== null && sRow.empty_wt !== undefined) orderEmptyWt = sRow.empty_wt;
+          if (sRow.actual_wt !== null && sRow.actual_wt !== undefined) orderActualWt = sRow.actual_wt;
+          if (sRow.rate_adjustment) orderRateAdjustment = sRow.rate_adjustment;
+          if (!orderRatePcs && sRow.rate_pcs) orderRatePcs = sRow.rate_pcs;
         }
       }
 
       return {
         ...order,
+        rate_pcs: orderRatePcs,
         description: orderDesc,
         pic_or_kg: orderPicKg,
         kg_dzn: orderKgDzn,
@@ -219,7 +270,8 @@ const SalesInvoice = {
         actual_wt: orderActualWt,
         box_name: orderBoxName,
         shrink_name: orderShrinkName,
-        ld_name: orderLdName
+        ld_name: orderLdName,
+        rate_adjustment: orderRateAdjustment
       };
     }));
 
