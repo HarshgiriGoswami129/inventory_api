@@ -340,11 +340,16 @@ const Receipt = {
   },
 
   // Paginated search with multi-term support
-  findAllPaginated: async ({ page = 1, limit = 10, search = '' }) => {
+  findAllPaginated: async ({ page = 1, limit = 10, search = '', contact_id = null }) => {
     const offset = (page - 1) * limit;
 
     let whereConditions = [];
     let queryParams = [];
+
+    if (contact_id) {
+      whereConditions.push('(r.contact_id = ?)');
+      queryParams.push(contact_id);
+    }
 
     if (search && search.trim()) {
       const terms = search.trim().split(/\s+/).filter(t => t.length > 0);

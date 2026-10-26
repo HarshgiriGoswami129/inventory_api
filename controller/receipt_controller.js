@@ -37,12 +37,13 @@ const receiptController = {
   },
   getAllReceipts: async (req, res) => {
     try {
-      const { page = 1, limit = 10, search = '' } = req.body;
+      const { page = 1, limit = 10, search = '', contact_id = null } = req.body;
 
       const result = await Receipt.findAllPaginated({
         page: parseInt(page),
         limit: parseInt(limit),
-        search: search || ''
+        search: search || '',
+        contact_id: contact_id || null
       });
 
       res.status(200).json({
