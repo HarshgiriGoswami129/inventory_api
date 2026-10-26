@@ -7,13 +7,18 @@ const Receipt = {
 
       const { date, amount, contact_id, account_id, description, reference, note, image_url, user_id, customer_id } = receiptData;
 
-      // Step 1: Insert the new receipt
+      const numAmount = parseFloat(amount) || 0;
+      const isNegative = numAmount < 0;
+      const absAmount = Math.abs(numAmount);
+
+      // Step 1: Insert the new receipt (stores actual signed value, e.g. -2000)
       const receiptQuery = 'INSERT INTO receipts (date, amount, contact_id, account_id, description, reference, note, image_url, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
-      const [receiptResult] = await connection.query(receiptQuery, [date, amount, contact_id, account_id, description, reference, note, image_url, user_id]);
+      const [receiptResult] = await connection.query(receiptQuery, [date, numAmount, contact_id, account_id, description, reference, note, image_url, user_id]);
 
       // Step 2: Update the bank account balance
+      // If amount is negative (-2000), balance = balance + (-2000) -> balance decreases by 2000 (cut from account)
       const updateAccountQuery = 'UPDATE accounts SET balance = balance + ? WHERE id = ?';
-      await connection.query(updateAccountQuery, [amount, account_id]);
+      await connection.query(updateAccountQuery, [numAmount, account_id]);
 
       // Step 2.5: Get updated balance and contact info for account history
       const [accountRows] = await connection.query('SELECT balance FROM accounts WHERE id = ?', [account_id]);
@@ -30,16 +35,18 @@ const Receipt = {
         }
       }
 
-      // Step 2.6: Insert account history record (CREDIT - money added)
+      // Step 2.6: Insert account history record (CREDIT if positive, DEBIT if negative cut)
+      const transType = isNegative ? 'DEBIT' : 'CREDIT';
       const historyQuery = `
       INSERT INTO account_history 
       (account_id, transaction_type, amount, contact_id, contact_name, contact_type, 
        date, description, reference, receipt_id, balance_after, user_id) 
-      VALUES (?, 'CREDIT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
       await connection.query(historyQuery, [
         account_id,
-        amount,
+        transType,
+        absAmount,
         contact_id || null,
         contactName,
         contactType,
@@ -51,21 +58,21 @@ const Receipt = {
         user_id || null
       ]);
 
-      // Step 3: Handle customer-related updates (existing logic)
-      if (contact_id && amount && amount > 0 && account_id) {
+      // Step 3: Handle customer-related updates
+      if (contact_id && numAmount !== 0 && account_id) {
         const [contactRows] = await connection.query(
           'SELECT type FROM contacts WHERE id = ? LIMIT 1',
           [contact_id]
         );
 
         if (contactRows.length > 0 && contactRows[0].type === 'Customer') {
-          // Update customer total_amount
+          // Update customer total_amount (deducts absAmount from customer due)
           const updateCustomerTotalQuery = `
           UPDATE customer_details 
           SET total_amount = COALESCE(total_amount, 0) - ? 
           WHERE contact_id = ?
         `;
-          await connection.query(updateCustomerTotalQuery, [amount, contact_id]);
+          await connection.query(updateCustomerTotalQuery, [absAmount, contact_id]);
 
           // Get account name to check if it's NO_1 or NO_2
           const [accountRows] = await connection.query(
@@ -82,22 +89,22 @@ const Receipt = {
               SET no_1 = COALESCE(no_1, 0) - ? 
               WHERE contact_id = ?
             `;
-              await connection.query(updateNo1Query, [amount, contact_id]);
+              await connection.query(updateNo1Query, [absAmount, contact_id]);
             } else if (accountName === 'NO_2') {
               const updateNo2Query = `
               UPDATE customer_details 
               SET no_2 = COALESCE(no_2, 0) - ? 
               WHERE contact_id = ?
             `;
-              await connection.query(updateNo2Query, [amount, contact_id]);
+              await connection.query(updateNo2Query, [absAmount, contact_id]);
             }
           }
         }
       }
 
       // Step 4: OPENING DUE & INVOICE CASCADING SETTLEMENT LOGIC
-      if ((customer_id || contact_id) && amount && amount > 0) {
-        let remainingAmount = parseFloat(amount);
+      if ((customer_id || contact_id) && numAmount !== 0) {
+        let remainingAmount = absAmount;
 
         // Resolve customer code
         let customerCode = customer_id;
@@ -113,7 +120,7 @@ const Receipt = {
             [customerCode]
           );
           const currentTotal = parseFloat(cDetailRows[0]?.total_amount) || 0;
-          const previousTotal = currentTotal + parseFloat(amount);
+          const previousTotal = currentTotal + absAmount;
 
           // Get total remaining balance on all unpaid invoices
           const [invSumRows] = await connection.query(
@@ -213,6 +220,42 @@ const Receipt = {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
+
+      // Retrieve receipt details to reverse balances
+      const [receiptRows] = await connection.query('SELECT * FROM receipts WHERE id = ? LIMIT 1 FOR UPDATE', [id]);
+      if (receiptRows.length > 0) {
+        const receipt = receiptRows[0];
+        const numAmount = parseFloat(receipt.amount) || 0;
+        const absAmount = Math.abs(numAmount);
+
+        // Reverse account balance (subtract what was added, i.e., - numAmount)
+        if (receipt.account_id) {
+          await connection.query('UPDATE accounts SET balance = balance - ? WHERE id = ?', [numAmount, receipt.account_id]);
+        }
+
+        // Delete from account_history
+        await connection.query('DELETE FROM account_history WHERE receipt_id = ?', [id]);
+
+        // Reverse customer_details
+        if (receipt.contact_id && numAmount !== 0) {
+          const [contactRows] = await connection.query('SELECT type FROM contacts WHERE id = ? LIMIT 1', [receipt.contact_id]);
+          if (contactRows.length > 0 && contactRows[0].type === 'Customer') {
+            await connection.query('UPDATE customer_details SET total_amount = COALESCE(total_amount, 0) + ? WHERE contact_id = ?', [absAmount, receipt.contact_id]);
+
+            if (receipt.account_id) {
+              const [accountRows] = await connection.query('SELECT account_name FROM accounts WHERE id = ? LIMIT 1', [receipt.account_id]);
+              if (accountRows.length > 0) {
+                const accName = accountRows[0].account_name;
+                if (accName === 'NO_1') {
+                  await connection.query('UPDATE customer_details SET no_1 = COALESCE(no_1, 0) + ? WHERE contact_id = ?', [absAmount, receipt.contact_id]);
+                } else if (accName === 'NO_2') {
+                  await connection.query('UPDATE customer_details SET no_2 = COALESCE(no_2, 0) + ? WHERE contact_id = ?', [absAmount, receipt.contact_id]);
+                }
+              }
+            }
+          }
+        }
+      }
 
       const [result] = await connection.query('DELETE FROM receipts WHERE id = ?', [id]);
 

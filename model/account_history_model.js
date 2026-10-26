@@ -54,7 +54,17 @@ const AccountHistory = {
         a.account_name,
         a.code as account_code,
         c.name as contact_full_name,
-        c.code as contact_code
+        c.code as contact_code,
+        CASE 
+          WHEN ah.contact_type = 'Customer' THEN ah.contact_name
+          WHEN ah.transaction_type = 'CREDIT' THEN ah.contact_name
+          ELSE NULL
+        END as customer_name,
+        CASE 
+          WHEN ah.contact_type = 'Supplier' THEN ah.contact_name
+          WHEN ah.transaction_type = 'DEBIT' AND (ah.contact_type IS NULL OR ah.contact_type != 'Customer') THEN ah.contact_name
+          ELSE NULL
+        END as supplier_name
       FROM account_history ah
       LEFT JOIN accounts a ON ah.account_id = a.id
       LEFT JOIN contacts c ON ah.contact_id = c.id
@@ -112,7 +122,17 @@ const AccountHistory = {
         a.account_name,
         a.code as account_code,
         c.name as contact_full_name,
-        c.code as contact_code
+        c.code as contact_code,
+        CASE 
+          WHEN ah.contact_type = 'Customer' THEN ah.contact_name
+          WHEN ah.transaction_type = 'CREDIT' THEN ah.contact_name
+          ELSE NULL
+        END as customer_name,
+        CASE 
+          WHEN ah.contact_type = 'Supplier' THEN ah.contact_name
+          WHEN ah.transaction_type = 'DEBIT' AND (ah.contact_type IS NULL OR ah.contact_type != 'Customer') THEN ah.contact_name
+          ELSE NULL
+        END as supplier_name
       FROM account_history ah
       LEFT JOIN accounts a ON ah.account_id = a.id
       LEFT JOIN contacts c ON ah.contact_id = c.id
@@ -219,11 +239,13 @@ const AccountHistory = {
         a.account_name,
         a.code as account_code,
         CASE 
+          WHEN ah.contact_type = 'Customer' THEN ah.contact_name
           WHEN ah.transaction_type = 'CREDIT' THEN ah.contact_name
           ELSE NULL
         END as customer_name,
         CASE 
-          WHEN ah.transaction_type = 'DEBIT' THEN ah.contact_name
+          WHEN ah.contact_type = 'Supplier' THEN ah.contact_name
+          WHEN ah.transaction_type = 'DEBIT' AND (ah.contact_type IS NULL OR ah.contact_type != 'Customer') THEN ah.contact_name
           ELSE NULL
         END as supplier_name,
         ah.contact_id,

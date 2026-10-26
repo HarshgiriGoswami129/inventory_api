@@ -1,5 +1,44 @@
 const db = require('../config/db'); // Assuming you have a db config file
 
+const resolveMasterItemCode = async (connection, rawCode) => {
+  if (!rawCode) return null;
+  const cleanCode = String(rawCode).trim();
+  if (!cleanCode) return null;
+
+  try {
+    // 1. Direct check in master_items
+    const [direct] = await connection.query(
+      'SELECT item_code FROM master_items WHERE item_code = ? LIMIT 1',
+      [cleanCode]
+    );
+    if (direct && direct.length > 0) return direct[0].item_code;
+
+    // 2. Check in inventory_items by code_user or item_code
+    const [invMatch] = await connection.query(
+      `SELECT ii.item_code 
+       FROM inventory_items ii
+       JOIN master_items mi ON ii.item_code = mi.item_code
+       WHERE ii.code_user = ? OR ii.item_code = ?
+       LIMIT 1`,
+      [cleanCode, cleanCode]
+    );
+    if (invMatch && invMatch.length > 0) return invMatch[0].item_code;
+
+    // 3. Fallback: prefix match (e.g. composite customer item code 'ST33434PBVS' starts with 'ST33434')
+    const [prefixMatch] = await connection.query(
+      `SELECT item_code FROM master_items 
+       WHERE ? LIKE CONCAT(item_code, '%') 
+       ORDER BY LENGTH(item_code) DESC LIMIT 1`,
+      [cleanCode]
+    );
+    if (prefixMatch && prefixMatch.length > 0) return prefixMatch[0].item_code;
+  } catch (err) {
+    console.warn('Error resolving master item code:', err.message);
+  }
+
+  return null;
+};
+
 const Invoice = {
   initColumns: async () => {
     try {
@@ -190,39 +229,50 @@ const Invoice = {
         // This allows negative stock (overselling/backorder)
 
         const totalKg = parseFloat(net_kg) || 0;
+        const masterItemCode = await resolveMasterItemCode(connection, item_code);
 
-        // Direct stock update - now allows negative values
-        const updateStockQuery = `
-          UPDATE master_items 
-          SET stock_quantity = stock_quantity - ?, 
-              stock_kg       = COALESCE(stock_kg, 0) - ?
-          WHERE item_code = ?
-        `;
-        await connection.query(updateStockQuery, [total_pcs, totalKg, item_code]);
-        // Insert stock history (DEBIT - stock out via sales invoice)
-        const historyQuery = `
-          INSERT INTO stock_history
-          (item_code, transaction_type, invoice_type, invoice_number,
-           quantity_pcs, quantity_kg, movement_date, note, user_id)
-          VALUES (?, 'DEBIT', 'SALES', ?, ?, ?, ?, ?, ?)
-        `;
-        await connection.query(historyQuery, [
-          item_code,
-          invoiceData.invoice_number || null,
-          total_pcs,
-          totalKg,
-          invoiceData.invoice_date || new Date(),
-          null,
-          invoiceData.created_by || null
-        ]);
+        if (masterItemCode) {
+          // Direct stock update - now allows negative values
+          const updateStockQuery = `
+            UPDATE master_items 
+            SET stock_quantity = stock_quantity - ?, 
+                stock_kg       = COALESCE(stock_kg, 0) - ?
+            WHERE item_code = ?
+          `;
+          await connection.query(updateStockQuery, [total_pcs, totalKg, masterItemCode]);
+
+          try {
+            // Insert stock history (DEBIT - stock out via sales invoice)
+            const historyQuery = `
+              INSERT INTO stock_history
+              (item_code, transaction_type, invoice_type, invoice_number,
+               quantity_pcs, quantity_kg, movement_date, note, user_id)
+              VALUES (?, 'DEBIT', 'SALES', ?, ?, ?, ?, ?, ?)
+            `;
+            await connection.query(historyQuery, [
+              masterItemCode,
+              invoiceData.invoice_number || null,
+              total_pcs,
+              totalKg,
+              invoiceData.invoice_date || new Date(),
+              null,
+              invoiceData.created_by || null
+            ]);
+          } catch (historyErr) {
+            console.warn(`Stock history insert skipped for item ${masterItemCode}:`, historyErr.message);
+          }
+        } else {
+          console.warn(`Create invoice: No master_items found for item_code '${item_code}'. Skipping master stock & stock_history.`);
+        }
+
         let total_pcs_to_invoice = total_pcs;
         if (item_code && item_finish && total_pcs_to_invoice > 0) {
           const [salesOrders] = await connection.query(`
               SELECT id, quantity_pcs FROM sales_orders
-              WHERE item_code = ? AND finish = ? AND (customer_code = ? OR customer_id = ?) AND quantity_pcs > 0
+              WHERE (item_code = ? OR item_code = ?) AND finish = ? AND (customer_code = ? OR customer_id = ?) AND quantity_pcs > 0
               ORDER BY id ASC
               FOR UPDATE
-          `, [item_code, item_finish, invoiceData.customer_id, invoiceData.customer_id]);
+          `, [item_code, masterItemCode || item_code, item_finish, invoiceData.customer_id, invoiceData.customer_id]);
           if (salesOrders && salesOrders.length > 0) {
             for (const order of salesOrders) {
               if (total_pcs_to_invoice <= 0) {
@@ -437,16 +487,17 @@ const Invoice = {
         if (deltaPcs === 0) continue;
 
         const [itemCode, itemFinish] = key.split('|||');
+        const masterItemCode = await resolveMasterItemCode(connection, itemCode);
 
         if (deltaPcs > 0) {
           let remaining = deltaPcs;
           const [salesOrders] = await connection.query(
             `SELECT id, quantity_pcs
              FROM sales_orders
-             WHERE item_code = ? AND finish = ? AND (customer_code = ? OR customer_id = ?) AND quantity_pcs > 0
+             WHERE (item_code = ? OR item_code = ?) AND finish = ? AND (customer_code = ? OR customer_id = ?) AND quantity_pcs > 0
              ORDER BY id ASC
              FOR UPDATE`,
-            [itemCode, itemFinish, invoice.customer_id, invoice.customer_id]
+            [itemCode, masterItemCode || itemCode, itemFinish, invoice.customer_id, invoice.customer_id]
           );
 
           for (const order of salesOrders) {
@@ -470,10 +521,10 @@ const Invoice = {
           const [salesOrders] = await connection.query(
             `SELECT id, quantity_pcs, initial_qty
              FROM sales_orders
-             WHERE item_code = ? AND finish = ? AND (customer_code = ? OR customer_id = ?)
+             WHERE (item_code = ? OR item_code = ?) AND finish = ? AND (customer_code = ? OR customer_id = ?)
              ORDER BY id ASC
              FOR UPDATE`,
-            [itemCode, itemFinish, invoice.customer_id, invoice.customer_id]
+            [itemCode, masterItemCode || itemCode, itemFinish, invoice.customer_id, invoice.customer_id]
           );
 
           if (salesOrders.length === 0) {
@@ -512,38 +563,43 @@ const Invoice = {
 
         if (deltaPcs === 0 && deltaKg === 0) continue;
 
-        const [stockUpdateResult] = await connection.query(
-          `UPDATE master_items
-           SET stock_quantity = stock_quantity - ?,
-               stock_kg = COALESCE(stock_kg, 0) - ?
-           WHERE item_code = ?`,
-          [deltaPcs, deltaKg, itemCode]
-        );
+        const masterItemCode = await resolveMasterItemCode(connection, itemCode);
+        if (masterItemCode) {
+          await connection.query(
+            `UPDATE master_items
+             SET stock_quantity = stock_quantity - ?,
+                 stock_kg = COALESCE(stock_kg, 0) - ?
+             WHERE item_code = ?`,
+            [deltaPcs, deltaKg, masterItemCode]
+          );
 
-        if (stockUpdateResult.affectedRows === 0) {
-          throw new Error(`Master item not found for item_code ${itemCode}`);
+          const qtyPcs = Math.abs(deltaPcs);
+          const qtyKg = Math.abs(deltaKg);
+          const transactionType = (deltaPcs > 0 || (deltaPcs === 0 && deltaKg > 0)) ? 'DEBIT' : 'CREDIT';
+
+          try {
+            await connection.query(
+              `INSERT INTO stock_history
+              (item_code, transaction_type, invoice_type, invoice_number,
+               quantity_pcs, quantity_kg, movement_date, note, user_id)
+              VALUES (?, ?, 'SALES', ?, ?, ?, ?, ?, ?)`,
+              [
+                masterItemCode,
+                transactionType,
+                mainInvoiceData.invoice_number || invoice.invoice_number || null,
+                qtyPcs,
+                qtyKg,
+                mainInvoiceData.invoice_date || invoice.invoice_date || new Date(),
+                'Invoice update stock adjustment',
+                mainInvoiceData.updated_by || null
+              ]
+            );
+          } catch (historyErr) {
+            console.warn(`Stock history update insert skipped for item ${masterItemCode}:`, historyErr.message);
+          }
+        } else {
+          console.warn(`Update invoice: No master_items found for item_code '${itemCode}'. Skipping master stock & stock_history.`);
         }
-
-        const qtyPcs = Math.abs(deltaPcs);
-        const qtyKg = Math.abs(deltaKg);
-        const transactionType = (deltaPcs > 0 || (deltaPcs === 0 && deltaKg > 0)) ? 'DEBIT' : 'CREDIT';
-
-        await connection.query(
-          `INSERT INTO stock_history
-          (item_code, transaction_type, invoice_type, invoice_number,
-           quantity_pcs, quantity_kg, movement_date, note, user_id)
-          VALUES (?, ?, 'SALES', ?, ?, ?, ?, ?, ?)`,
-          [
-            itemCode,
-            transactionType,
-            mainInvoiceData.invoice_number || invoice.invoice_number || null,
-            qtyPcs,
-            qtyKg,
-            mainInvoiceData.invoice_date || invoice.invoice_date || new Date(),
-            'Invoice update stock adjustment',
-            mainInvoiceData.updated_by || null
-          ]
-        );
       }
 
       // 2.1) Adjust Box, Shrink, and LD inventory by delta (new - old)
@@ -923,39 +979,50 @@ const Invoice = {
 
         if (!itemCode || totalPcs <= 0) continue;
 
-        await connection.query(
-          `UPDATE master_items
-           SET stock_quantity = stock_quantity + ?,
-               stock_kg = COALESCE(stock_kg, 0) + ?
-           WHERE item_code = ?`,
-          [totalPcs, totalKg, itemCode]
-        );
+        // Resolve valid master item code (safely maps composite or customer-specific item codes)
+        const masterItemCode = await resolveMasterItemCode(connection, itemCode);
 
-        await connection.query(
-          `INSERT INTO stock_history
-          (item_code, transaction_type, invoice_type, invoice_number,
-           quantity_pcs, quantity_kg, movement_date, note, user_id)
-          VALUES (?, 'CREDIT', 'SALES', ?, ?, ?, ?, ?, ?)`,
-          [
-            itemCode,
-            invoice.invoice_number || null,
-            totalPcs,
-            totalKg,
-            new Date(),
-            undoReason || `Undo invoice ${invoice.invoice_number || id}`,
-            undoByUserId || null
-          ]
-        );
+        if (masterItemCode) {
+          await connection.query(
+            `UPDATE master_items
+             SET stock_quantity = stock_quantity + ?,
+                 stock_kg = COALESCE(stock_kg, 0) + ?
+             WHERE item_code = ?`,
+            [totalPcs, totalKg, masterItemCode]
+          );
+
+          try {
+            await connection.query(
+              `INSERT INTO stock_history
+              (item_code, transaction_type, invoice_type, invoice_number,
+               quantity_pcs, quantity_kg, movement_date, note, user_id)
+              VALUES (?, 'CREDIT', 'SALES', ?, ?, ?, ?, ?, ?)`,
+              [
+                masterItemCode,
+                invoice.invoice_number || null,
+                totalPcs,
+                totalKg,
+                new Date(),
+                undoReason || `Undo invoice ${invoice.invoice_number || id}`,
+                undoByUserId || null
+              ]
+            );
+          } catch (historyErr) {
+            console.warn(`Stock history undo insert skipped for item ${masterItemCode}:`, historyErr.message);
+          }
+        } else {
+          console.warn(`Undo invoice: No matching master_items found for item_code '${itemCode}'. Skipping master stock & stock_history.`);
+        }
 
         if (itemFinish) {
           let remainingRestore = totalPcs;
           const [salesOrders] = await connection.query(
             `SELECT id, quantity_pcs, initial_qty
              FROM sales_orders
-             WHERE item_code = ? AND finish = ? AND (customer_code = ? OR customer_id = ?)
+             WHERE (item_code = ? OR item_code = ?) AND finish = ? AND (customer_code = ? OR customer_id = ?)
              ORDER BY id ASC
              FOR UPDATE`,
-            [itemCode, itemFinish, invoice.customer_id, invoice.customer_id]
+            [itemCode, masterItemCode || itemCode, itemFinish, invoice.customer_id, invoice.customer_id]
           );
 
           for (const order of salesOrders) {
