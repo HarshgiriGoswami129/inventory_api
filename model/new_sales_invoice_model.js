@@ -1224,7 +1224,7 @@ const Invoice = {
     const dataQuery = `
       SELECT 
         i.id, i.invoice_number AS invoiceNo, i.invoice_date, i.customer_id,
-        c.contact_name, c.name, i.grand_total, i.sub_total,
+        c.contact_name, i.grand_total, i.sub_total,
         i.reference_no_1 AS No1, i.reference_no_2 AS No2, cd.credit_period,
         i.remaining_amount
       FROM invoices i

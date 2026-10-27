@@ -53,7 +53,7 @@ const AccountHistory = {
         ah.*,
         a.account_name,
         a.code as account_code,
-        c.name as contact_full_name,
+        c.contact_name as contact_full_name,
         c.code as contact_code,
         CASE 
           WHEN ah.contact_type = 'Customer' THEN ah.contact_name
@@ -121,7 +121,7 @@ const AccountHistory = {
         ah.*,
         a.account_name,
         a.code as account_code,
-        c.name as contact_full_name,
+        c.contact_name as contact_full_name,
         c.code as contact_code,
         CASE 
           WHEN ah.contact_type = 'Customer' THEN ah.contact_name
