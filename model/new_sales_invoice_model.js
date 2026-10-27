@@ -1149,14 +1149,58 @@ const Invoice = {
     if (search && search.trim()) {
       const terms = search.trim().split(/\s+/).filter(t => t.length > 0);
       if (terms.length > 0) {
-        const searchFields = ['i.invoice_number', 'i.customer_id'];
-
         const termConditions = terms.map(term => {
-          const fieldConditions = searchFields.map(field => {
-            queryParams.push(`%${term}%`);
-            return `${field} LIKE ?`;
-          }).join(' OR ');
-          return `(${fieldConditions})`;
+          const pattern = `%${term}%`;
+          const directFields = [
+            'i.invoice_number',
+            'i.customer_id',
+            'c.contact_name',
+            'c.code',
+            "DATE_FORMAT(i.invoice_date, '%d-%m-%Y')",
+            "DATE_FORMAT(i.invoice_date, '%d-%m-%y')",
+            "DATE_FORMAT(i.invoice_date, '%d/%m/%Y')",
+            "DATE_FORMAT(i.invoice_date, '%d/%m/%y')",
+            "DATE_FORMAT(i.invoice_date, '%Y-%m-%d')",
+            "DATE_FORMAT(i.invoice_date, '%d-%m')",
+            "DATE_FORMAT(i.invoice_date, '%d/%m')",
+            "CAST(i.invoice_date AS CHAR)",
+            "CAST(i.grand_total AS CHAR)",
+            "CAST(i.sub_total AS CHAR)",
+            "CAST(i.remaining_amount AS CHAR)",
+            "CAST(i.reference_no_1 AS CHAR)",
+            "CAST(i.reference_no_2 AS CHAR)",
+            "CAST(COALESCE(i.reference_no_1, 0) + COALESCE(i.reference_no_2, 0) AS CHAR)",
+            "i.tr_number",
+            "i.lr_number"
+          ];
+
+          directFields.forEach(() => {
+            queryParams.push(pattern);
+          });
+
+          // 7 item fields in EXISTS subquery
+          for (let k = 0; k < 7; k++) {
+            queryParams.push(pattern);
+          }
+
+          const directConditions = directFields.map(f => `${f} LIKE ?`).join(' OR ');
+
+          return `(
+            ${directConditions}
+            OR EXISTS (
+              SELECT 1 FROM invoice_items ii
+              WHERE ii.invoice_id = i.id
+              AND (
+                ii.item_code LIKE ?
+                OR ii.item_description LIKE ?
+                OR ii.item_finish LIKE ?
+                OR CAST(ii.pcs_rate AS CHAR) LIKE ?
+                OR CAST(ii.rate_kg AS CHAR) LIKE ?
+                OR CAST(ii.total_rs AS CHAR) LIKE ?
+                OR CAST(ii.total_pcs AS CHAR) LIKE ?
+              )
+            )
+          )`;
         });
 
         whereConditions.push(`(${termConditions.join(' AND ')})`);
@@ -1180,6 +1224,7 @@ const Invoice = {
     const dataQuery = `
       SELECT 
         i.id, i.invoice_number AS invoiceNo, i.invoice_date, i.customer_id,
+        c.contact_name, c.name, i.grand_total, i.sub_total,
         i.reference_no_1 AS No1, i.reference_no_2 AS No2, cd.credit_period,
         i.remaining_amount
       FROM invoices i
@@ -1212,9 +1257,23 @@ const Invoice = {
         status = 'OVERDUE';
       }
       return {
-        id: row.id, invoiceNo: row.invoiceNo, cutomer_id: row.customer_id, daysElapsed,
-        creditDays, daysLeft: daysLeft >= 0 ? daysLeft : 0, daysOverdue, status,
-        No1: row.No1 || 0, No2: row.No2 || 0, No1_plus_No2: parseNumber(row.No1) + parseNumber(row.No2),
+        id: row.id,
+        invoiceNo: row.invoiceNo,
+        cutomer_id: row.customer_id,
+        customer_id: row.customer_id,
+        customer_name: row.contact_name || row.name || row.customer_id,
+        invoice_date: row.invoice_date,
+        date: row.invoice_date,
+        grand_total: parseNumber(row.grand_total),
+        sub_total: parseNumber(row.sub_total),
+        daysElapsed,
+        creditDays,
+        daysLeft: daysLeft >= 0 ? daysLeft : 0,
+        daysOverdue,
+        status,
+        No1: row.No1 || 0,
+        No2: row.No2 || 0,
+        No1_plus_No2: parseNumber(row.No1) + parseNumber(row.No2),
         remaining_amount: parseNumber(row.remaining_amount)
       };
     });

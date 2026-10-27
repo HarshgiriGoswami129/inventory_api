@@ -275,7 +275,17 @@ const Payment = {
       if (terms.length > 0) {
         const searchFields = [
           'p.description', 'p.reference', 'p.note', 'p.amount',
-          'c.contact_name', 'c.code', 'a.account_name'
+          'c.contact_name', 'c.code', 'a.account_name',
+          "DATE_FORMAT(p.date, '%d-%m-%Y')",
+          "DATE_FORMAT(p.date, '%d-%m-%y')",
+          "DATE_FORMAT(p.date, '%d/%m/%Y')",
+          "DATE_FORMAT(p.date, '%d/%m/%y')",
+          "DATE_FORMAT(p.date, '%Y-%m-%d')",
+          "DATE_FORMAT(p.date, '%d-%m')",
+          "DATE_FORMAT(p.date, '%d/%m')",
+          "CAST(p.date AS CHAR)",
+          "CAST(p.amount AS CHAR)",
+          "CAST(p.id AS CHAR)"
         ];
 
         const termConditions = terms.map(term => {

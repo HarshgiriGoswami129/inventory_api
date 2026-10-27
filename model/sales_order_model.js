@@ -4,15 +4,28 @@ const SalesOrder = {
   create: async (orderData) => {
     // Auto-set initial_qty to same value as quantity_pcs
     orderData.initial_qty = orderData.quantity_pcs || null;
+
+    if (orderData.total_rs === undefined || orderData.total_rs === null || orderData.total_rs === '') {
+      const isPerKg = Number(orderData.pic_or_kg) === 1;
+      const qty = parseFloat(orderData.initial_qty || orderData.quantity_pcs) || 0;
+      const ratePcs = parseFloat(orderData.rate_pcs) || 0;
+      const totalKg = parseFloat(orderData.total_kg) || 0;
+      const rateKz = parseFloat(orderData.rate_kz) || 0;
+      orderData.total_rs = isPerKg
+        ? Math.round(totalKg * rateKz * 100) / 100
+        : Math.round(qty * ratePcs * 100) / 100;
+    }
+
     const fields = [
       'order_number', 'order_date', 'customer_id', 'item_code', 'finish',
       'stock_qty', 'initial_qty', 'scrap', 'labour', 'kg_dzn', 'pcs_box', 'box_ctn',
       'pcs_ctn', 'kg_box', 'qty_ctn', 'total_kg', 'quantity_pcs',
       'order_stock', 'manufacturer_name', 'po_vr', 'note', 'invoice_status',
-      'created_by', 'customer_code', 'customer_name', 'rate_pcs', 'rate_kz'
+      'created_by', 'customer_code', 'customer_name', 'rate_pcs', 'rate_kz',
+      'pic_or_kg', 'total_rs'
     ];
     const placeholders = fields.map(() => '?').join(', ');
-    const values = fields.map(field => orderData[field] || null);
+    const values = fields.map(field => (orderData[field] !== undefined && orderData[field] !== null) ? orderData[field] : null);
 
     const query = `INSERT INTO sales_orders (${fields.join(', ')}) VALUES (${placeholders})`;
     const [result] = await db.query(query, values);
@@ -165,7 +178,8 @@ const SalesOrder = {
         i.kg_box,
         i.rate_pcs,
         i.rate_adjustment,
-        i.base_rate_pcs
+        i.base_rate_pcs,
+        i.pic_or_kg
       FROM inventory_items i
       WHERE i.code_user = ? OR i.code_user LIKE CONCAT(?, '_%')
       ORDER BY i.id DESC
@@ -204,7 +218,23 @@ const SalesOrder = {
         const searchFields = [
           'so.order_number', 'so.customer_id', 'so.item_code', 'so.finish',
           'so.manufacturer_name', 'so.po_vr', 'so.note', 'so.customer_code',
-          'so.customer_name', 'c.contact_name'
+          'so.customer_name', 'c.contact_name',
+          "DATE_FORMAT(so.order_date, '%d-%m-%Y')",
+          "DATE_FORMAT(so.order_date, '%d-%m-%y')",
+          "DATE_FORMAT(so.order_date, '%d/%m/%Y')",
+          "DATE_FORMAT(so.order_date, '%d/%m/%y')",
+          "DATE_FORMAT(so.order_date, '%Y-%m-%d')",
+          "DATE_FORMAT(so.order_date, '%d-%m')",
+          "DATE_FORMAT(so.order_date, '%d/%m')",
+          "CAST(so.order_date AS CHAR)",
+          "CAST(so.rate_pcs AS CHAR)",
+          "CAST(so.rate_kz AS CHAR)",
+          "CAST(so.quantity_pcs AS CHAR)",
+          "CAST(so.total_kg AS CHAR)",
+          "CAST(so.qty_ctn AS CHAR)",
+          "CAST(so.total_rs AS CHAR)",
+          "CAST(ROUND(so.quantity_pcs * so.rate_pcs, 2) AS CHAR)",
+          "CAST(ROUND(so.total_kg * so.rate_kz, 2) AS CHAR)"
         ];
 
         const termConditions = terms.map(term => {

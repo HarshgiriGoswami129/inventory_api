@@ -379,10 +379,12 @@ const Contact = {
       const terms = search.trim().split(/\s+/).filter(t => t.length > 0);
       if (terms.length > 0) {
         const searchFields = [
-          'c.contact_name', 'c.code', 'c.email', 'c.address',
+          'c.contact_name', 'c.code', 'c.email', 'c.address', 'c.category_type',
           'cd.billing_address', 'cd.delivery_address', 'cd.gstin', 'cd.pan',
-          'cd.place_of_supply', 'cd.notes', 'cd.no_1', 'cd.no_2',
-          'sd.division', 'sd.note', 'sd.no_1', 'sd.no_2'
+          'cd.place_of_supply', 'cd.notes',
+          'CAST(cd.no_1 AS CHAR)', 'CAST(cd.no_2 AS CHAR)', 'CAST(cd.total_amount AS CHAR)',
+          'sd.division', 'sd.note',
+          'CAST(sd.no_1 AS CHAR)', 'CAST(sd.no_2 AS CHAR)', 'CAST(sd.total_amount AS CHAR)'
         ];
 
         // For each term: (field1 LIKE term OR field2 LIKE term OR ...)

@@ -51,7 +51,12 @@ const MasterItem = {
     if (search && search.trim()) {
       const terms = search.trim().split(/\s+/).filter(t => t.length > 0);
       if (terms.length > 0) {
-        const searchFields = ['item_code', 'description', 'kg_dz'];
+        const searchFields = [
+          'item_code', 'description', 'kg_dz',
+          "CAST(stock_quantity AS CHAR)",
+          "CAST(stock_kg AS CHAR)",
+          "CAST(id AS CHAR)"
+        ];
 
         const termConditions = terms.map(term => {
           const fieldConditions = searchFields.map(field => {

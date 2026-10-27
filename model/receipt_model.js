@@ -356,7 +356,17 @@ const Receipt = {
       if (terms.length > 0) {
         const searchFields = [
           'r.description', 'r.reference', 'r.note', 'r.amount',
-          'c.contact_name', 'c.code', 'a.account_name'
+          'c.contact_name', 'c.code', 'a.account_name',
+          "DATE_FORMAT(r.date, '%d-%m-%Y')",
+          "DATE_FORMAT(r.date, '%d-%m-%y')",
+          "DATE_FORMAT(r.date, '%d/%m/%Y')",
+          "DATE_FORMAT(r.date, '%d/%m/%y')",
+          "DATE_FORMAT(r.date, '%Y-%m-%d')",
+          "DATE_FORMAT(r.date, '%d-%m')",
+          "DATE_FORMAT(r.date, '%d/%m')",
+          "CAST(r.date AS CHAR)",
+          "CAST(r.amount AS CHAR)",
+          "CAST(r.id AS CHAR)"
         ];
 
         const termConditions = terms.map(term => {

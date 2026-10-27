@@ -485,10 +485,25 @@ const PurchaseInvoice = {
             pattern, // pi.code_user
             pattern, // pi.user
             pattern, // c.contact_name
+            pattern, // DATE_FORMAT %d-%m-%Y
+            pattern, // DATE_FORMAT %d-%m-%y
+            pattern, // DATE_FORMAT %d/%m/%Y
+            pattern, // DATE_FORMAT %d/%m/%y
+            pattern, // DATE_FORMAT %Y-%m-%d
+            pattern, // DATE_FORMAT %d-%m
+            pattern, // DATE_FORMAT %d/%m
+            pattern, // CAST pi.issue_date
+            pattern, // CAST pi.total_amount
+            pattern, // CAST pi.balance_due
             pattern, // pii.item_code
             pattern, // pii.description
             pattern, // pii.code
             pattern, // pii.notes
+            pattern, // CAST pii.rate_pcr
+            pattern, // CAST pii.amount
+            pattern, // CAST pii.net_kg
+            pattern, // CAST pii.total_psc
+            pattern, // pii.peti_Type
             pattern  // status
           );
           return `(
@@ -496,6 +511,16 @@ const PurchaseInvoice = {
             OR pi.code_user LIKE ?
             OR pi.user LIKE ?
             OR c.contact_name LIKE ?
+            OR DATE_FORMAT(pi.issue_date, '%d-%m-%Y') LIKE ?
+            OR DATE_FORMAT(pi.issue_date, '%d-%m-%y') LIKE ?
+            OR DATE_FORMAT(pi.issue_date, '%d/%m/%Y') LIKE ?
+            OR DATE_FORMAT(pi.issue_date, '%d/%m/%y') LIKE ?
+            OR DATE_FORMAT(pi.issue_date, '%Y-%m-%d') LIKE ?
+            OR DATE_FORMAT(pi.issue_date, '%d-%m') LIKE ?
+            OR DATE_FORMAT(pi.issue_date, '%d/%m') LIKE ?
+            OR CAST(pi.issue_date AS CHAR) LIKE ?
+            OR CAST(pi.total_amount AS CHAR) LIKE ?
+            OR CAST(pi.balance_due AS CHAR) LIKE ?
             OR EXISTS (
               SELECT 1 FROM purchase_invoice_items pii
               WHERE pii.invoice_id = pi.id
@@ -504,6 +529,11 @@ const PurchaseInvoice = {
                 OR pii.description LIKE ?
                 OR pii.code LIKE ?
                 OR pii.notes LIKE ?
+                OR CAST(pii.rate_pcr AS CHAR) LIKE ?
+                OR CAST(pii.amount AS CHAR) LIKE ?
+                OR CAST(pii.net_kg AS CHAR) LIKE ?
+                OR CAST(pii.total_psc AS CHAR) LIKE ?
+                OR pii.peti_Type LIKE ?
               )
             )
             OR (

@@ -51,7 +51,16 @@ const InventoryItem = {
     if (search && search.trim()) {
       const terms = search.trim().split(/\s+/).filter(t => t.length > 0);
       if (terms.length > 0) {
-        const searchFields = ['item_code', 'code_user', 'user', 'description', 'finish'];
+        const searchFields = [
+          'item_code', 'code_user', 'user', 'description', 'finish',
+          'box_name', 'shrink_name', 'ld_name',
+          "CAST(rate_pcs AS CHAR)",
+          "CAST(base_rate_pcs AS CHAR)",
+          "CAST(rate_kg AS CHAR)",
+          "CAST(stock_quantity AS CHAR)",
+          "CAST(kg_dzn AS CHAR)",
+          "CAST(total_kg AS CHAR)"
+        ];
 
         const termConditions = terms.map(term => {
           const fieldConditions = searchFields.map(field => {
