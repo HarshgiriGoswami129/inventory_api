@@ -29,7 +29,7 @@ const contactController = {
       const created_by = req.user.id;
 
       // The file path will be available in req.file.path
-      const image_url = req.file ? req.file.path : null;
+      const image_url = req.file ? req.file.path.replace(/\\/g, '/') : null;
 
       // The rest of the form data is in req.body
       const contactData = {
@@ -111,6 +111,13 @@ const contactController = {
 
       // Include user id from auth
       req.body.updated_by = req.user.id;
+
+      // Handle uploaded file if present
+      if (req.file) {
+        req.body.image_url = req.file.path.replace(/\\/g, '/');
+      } else if (req.body.remove_image === 'true' || req.body.remove_image === true) {
+        req.body.image_url = null;
+      }
 
       const updatedContact = await Contact.update(id, req.body);
 
