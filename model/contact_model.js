@@ -86,10 +86,25 @@ const Contact = {
             c.*,
             cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
             cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
-            COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
+            CASE 
+              WHEN c.type = 'Customer' THEN 
+                GREATEST(
+                  COALESCE(cd.total_amount, 0),
+                  COALESCE((SELECT SUM(i.remaining_amount) FROM invoices i WHERE i.customer_id = c.code), 0)
+                )
+              ELSE COALESCE(sd.total_amount, 0)
+            END AS total_amount,
             cd.notes, cd.payment, cd.date, cd.order_follow_up,
-            COALESCE(sd.no_1, cd.no_1, 0) AS no_1,
-            COALESCE(sd.no_2, cd.no_2, 0) AS no_2,
+            CASE 
+              WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
+                COALESCE((SELECT SUM(i.reference_no_1) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
+              ELSE COALESCE(sd.no_1, cd.no_1, 0)
+            END AS no_1,
+            CASE 
+              WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
+                COALESCE((SELECT SUM(i.reference_no_2) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
+              ELSE COALESCE(sd.no_2, cd.no_2, 0)
+            END AS no_2,
             sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
             COALESCE(
                 (
@@ -118,10 +133,25 @@ const Contact = {
             c.*,
             cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
             cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
-            COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
+            CASE 
+              WHEN c.type = 'Customer' THEN 
+                GREATEST(
+                  COALESCE(cd.total_amount, 0),
+                  COALESCE((SELECT SUM(i.remaining_amount) FROM invoices i WHERE i.customer_id = c.code), 0)
+                )
+              ELSE COALESCE(sd.total_amount, 0)
+            END AS total_amount,
             cd.notes, cd.payment, cd.date, cd.order_follow_up,
-            COALESCE(sd.no_1, cd.no_1, 0) AS no_1,
-            COALESCE(sd.no_2, cd.no_2, 0) AS no_2,
+            CASE 
+              WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
+                COALESCE((SELECT SUM(i.reference_no_1) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
+              ELSE COALESCE(sd.no_1, cd.no_1, 0)
+            END AS no_1,
+            CASE 
+              WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
+                COALESCE((SELECT SUM(i.reference_no_2) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
+              ELSE COALESCE(sd.no_2, cd.no_2, 0)
+            END AS no_2,
             sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
             COALESCE(
                 (
@@ -188,11 +218,49 @@ const Contact = {
 
       // Update customer_details or supplier_details based on type
       if (type === 'Customer' && details && Object.keys(details).length > 0) {
+        // Query existing unpaid invoices to avoid accidentally wiping out live balance
+        const [cRows] = await connection.query('SELECT code FROM contacts WHERE id = ? LIMIT 1', [id]);
+        const custCode = cRows.length > 0 ? cRows[0].code : null;
+
+        let unpaidInvoices = 0;
+        let invoiceNo1 = 0;
+        let invoiceNo2 = 0;
+        if (custCode) {
+          const [invSums] = await connection.query(
+            'SELECT COALESCE(SUM(remaining_amount), 0) as total_unpaid, COALESCE(SUM(reference_no_1), 0) as total_no1, COALESCE(SUM(reference_no_2), 0) as total_no2 FROM invoices WHERE customer_id = ?',
+            [custCode]
+          );
+          if (invSums.length > 0) {
+            unpaidInvoices = parseFloat(invSums[0].total_unpaid) || 0;
+            invoiceNo1 = parseFloat(invSums[0].total_no1) || 0;
+            invoiceNo2 = parseFloat(invSums[0].total_no2) || 0;
+          }
+        }
+
         const customerFields = [];
         const customerValues = [];
         for (const [key, value] of Object.entries(details)) {
+          let val = dateFields.has(key) ? sanitizeDate(value) : value;
+
+          if (key === 'total_amount') {
+            const numVal = parseFloat(val) || 0;
+            if (numVal < unpaidInvoices) {
+              val = unpaidInvoices;
+            }
+          } else if (key === 'no_1' && invoiceNo1 > 0) {
+            const numVal = parseFloat(val) || 0;
+            if (numVal === 0) {
+              val = invoiceNo1;
+            }
+          } else if (key === 'no_2' && invoiceNo2 > 0) {
+            const numVal = parseFloat(val) || 0;
+            if (numVal === 0) {
+              val = invoiceNo2;
+            }
+          }
+
           customerFields.push(`${key} = ?`);
-          customerValues.push(dateFields.has(key) ? sanitizeDate(value) : value);
+          customerValues.push(val);
         }
         customerValues.push(id); // contact_id
         const updateCustomerQuery = `UPDATE customer_details SET ${customerFields.join(', ')} WHERE contact_id = ?`;
@@ -222,10 +290,25 @@ const Contact = {
       const [rows] = await connection.query(
         `SELECT c.*, cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
      cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
-     COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
-     cd.notes, cd.payment, cd.date, cd.order_follow_up,
-     COALESCE(sd.no_1, cd.no_1, 0) AS no_1,
-     COALESCE(sd.no_2, cd.no_2, 0) AS no_2,
+            CASE 
+              WHEN c.type = 'Customer' THEN 
+                GREATEST(
+                  COALESCE(cd.total_amount, 0),
+                  COALESCE((SELECT SUM(i.remaining_amount) FROM invoices i WHERE i.customer_id = c.code), 0)
+                )
+              ELSE COALESCE(sd.total_amount, 0)
+            END AS total_amount,
+            cd.notes, cd.payment, cd.date, cd.order_follow_up,
+            CASE 
+              WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
+                COALESCE((SELECT SUM(i.reference_no_1) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
+              ELSE COALESCE(sd.no_1, cd.no_1, 0)
+            END AS no_1,
+            CASE 
+              WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
+                COALESCE((SELECT SUM(i.reference_no_2) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
+              ELSE COALESCE(sd.no_2, cd.no_2, 0)
+            END AS no_2,
      sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date
      FROM contacts c
      LEFT JOIN customer_details cd ON c.id = cd.contact_id
@@ -422,10 +505,25 @@ const Contact = {
         c.*,
         cd.credit_period, cd.billing_address, cd.delivery_address, cd.gstin, cd.pan, 
         cd.place_of_supply, cd.reverse_charge, cd.type_of_registration,
-        COALESCE(sd.total_amount, cd.total_amount, 0) AS total_amount,
-        cd.notes, cd.payment, cd.date, cd.order_follow_up,
-        COALESCE(sd.no_1, cd.no_1, 0) AS no_1,
-        COALESCE(sd.no_2, cd.no_2, 0) AS no_2,
+            CASE 
+              WHEN c.type = 'Customer' THEN 
+                GREATEST(
+                  COALESCE(cd.total_amount, 0),
+                  COALESCE((SELECT SUM(i.remaining_amount) FROM invoices i WHERE i.customer_id = c.code), 0)
+                )
+              ELSE COALESCE(sd.total_amount, 0)
+            END AS total_amount,
+            cd.notes, cd.payment, cd.date, cd.order_follow_up,
+            CASE 
+              WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
+                COALESCE((SELECT SUM(i.reference_no_1) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
+              ELSE COALESCE(sd.no_1, cd.no_1, 0)
+            END AS no_1,
+            CASE 
+              WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
+                COALESCE((SELECT SUM(i.reference_no_2) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
+              ELSE COALESCE(sd.no_2, cd.no_2, 0)
+            END AS no_2,
         sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
         COALESCE(
           (
