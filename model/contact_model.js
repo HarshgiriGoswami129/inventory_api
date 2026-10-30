@@ -7,6 +7,21 @@ const sanitizeDate = (val) => {
 };
 const dateFields = new Set(['date', 'due_date', 'note_date']);
 
+const validContactColumns = new Set([
+  'contact_name', 'type', 'code', 'email', 'image_url', 'address', 'category_type', 'updated_by'
+]);
+
+const validCustomerDetailColumns = new Set([
+  'credit_period', 'billing_address', 'delivery_address', 'gstin', 'pan',
+  'place_of_supply', 'reverse_charge', 'type_of_registration', 'total_amount',
+  'notes', 'payment', 'date', 'order_follow_up', 'no_1', 'no_2', 'category_type'
+]);
+
+const validSupplierDetailColumns = new Set([
+  'credit_limit', 'division', 'due_date', 'payment_status', 'note', 'total_amount',
+  'notes', 'payment', 'date', 'order_follow_up', 'note_date', 'category_type', 'no_1', 'no_2'
+]);
+
 const Contact = {
   // --- REWRITTEN create function ---
   create: async (contactData) => {
@@ -203,7 +218,7 @@ const Contact = {
         const fields = [];
         const values = [];
         for (const [key, value] of Object.entries(baseData)) {
-          if (value !== undefined && key !== 'id' && key !== 'updated_by') { // Assuming updated_by is managed separately or not in baseData
+          if (value !== undefined && key !== 'id' && validContactColumns.has(key)) {
             fields.push(`${key} = ?`);
             values.push(value);
           }
@@ -240,6 +255,7 @@ const Contact = {
         const customerFields = [];
         const customerValues = [];
         for (const [key, value] of Object.entries(details)) {
+          if (!validCustomerDetailColumns.has(key)) continue;
           let val = dateFields.has(key) ? sanitizeDate(value) : value;
 
           if (key === 'total_amount') {
@@ -275,6 +291,7 @@ const Contact = {
         }
 
         for (const [key, value] of Object.entries(details)) {
+          if (!validSupplierDetailColumns.has(key)) continue;
           supplierFields.push(`${key} = ?`);
           supplierValues.push(dateFields.has(key) ? sanitizeDate(value) : value);
         }

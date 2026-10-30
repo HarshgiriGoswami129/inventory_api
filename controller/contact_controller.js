@@ -118,6 +118,7 @@ const contactController = {
       } else if (req.body.remove_image === 'true' || req.body.remove_image === true) {
         req.body.image_url = null;
       }
+      delete req.body.remove_image;
 
       const updatedContact = await Contact.update(id, req.body);
 

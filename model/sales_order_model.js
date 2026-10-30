@@ -5,15 +5,21 @@ const SalesOrder = {
     // Auto-set initial_qty to same value as quantity_pcs
     orderData.initial_qty = orderData.quantity_pcs || null;
 
-    if (orderData.total_rs === undefined || orderData.total_rs === null || orderData.total_rs === '') {
+    if (orderData.total_rs === undefined || orderData.total_rs === null || orderData.total_rs === '' || Number(orderData.total_rs) === 0) {
       const isPerKg = Number(orderData.pic_or_kg) === 1;
       const qty = parseFloat(orderData.initial_qty || orderData.quantity_pcs) || 0;
       const ratePcs = parseFloat(orderData.rate_pcs) || 0;
-      const totalKg = parseFloat(orderData.total_kg) || 0;
+      let totalKg = parseFloat(orderData.total_kg) || 0;
+      if (totalKg === 0 && orderData.quantity_pcs && orderData.kg_dzn) {
+        totalKg = (parseFloat(orderData.kg_dzn) / 12) * parseFloat(orderData.quantity_pcs);
+      }
       const rateKz = parseFloat(orderData.rate_kz) || 0;
-      orderData.total_rs = isPerKg
+      const calcTotal = isPerKg
         ? Math.round(totalKg * rateKz * 100) / 100
         : Math.round(qty * ratePcs * 100) / 100;
+      if (calcTotal > 0) {
+        orderData.total_rs = calcTotal;
+      }
     }
 
     const fields = [
@@ -72,6 +78,24 @@ const SalesOrder = {
     // Protect initial_qty and invoice_status from manual edits
     delete orderData.initial_qty;
     delete orderData.invoice_status;
+
+    // Recalculate total_rs if 0 or missing and quantity/rates are available
+    if (orderData.total_rs === undefined || orderData.total_rs === null || orderData.total_rs === '' || Number(orderData.total_rs) === 0) {
+      const isPerKg = Number(orderData.pic_or_kg) === 1;
+      const qty = parseFloat(orderData.quantity_pcs) || 0;
+      const ratePcs = parseFloat(orderData.rate_pcs) || 0;
+      let totalKg = parseFloat(orderData.total_kg) || 0;
+      if (totalKg === 0 && orderData.quantity_pcs && orderData.kg_dzn) {
+        totalKg = (parseFloat(orderData.kg_dzn) / 12) * parseFloat(orderData.quantity_pcs);
+      }
+      const rateKz = parseFloat(orderData.rate_kz) || 0;
+      const calcTotal = isPerKg
+        ? Math.round(totalKg * rateKz * 100) / 100
+        : Math.round(qty * ratePcs * 100) / 100;
+      if (calcTotal > 0) {
+        orderData.total_rs = calcTotal;
+      }
+    }
 
     // Filter out undefined keys so we never accidentally overwrite existing DB values with NULL
     const cleanData = {};
