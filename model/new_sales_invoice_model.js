@@ -765,7 +765,10 @@ const Invoice = {
         const newGrandTotal = toNum(updateData.grand_total);
         const grandTotalDelta = newGrandTotal - oldGrandTotal;
         if (grandTotalDelta !== 0) {
-          updateData.remaining_amount = Math.max(0, toNum(invoice.remaining_amount) + grandTotalDelta);
+          const currentRemaining = invoice.remaining_amount !== null && invoice.remaining_amount !== undefined
+            ? toNum(invoice.remaining_amount)
+            : oldGrandTotal;
+          updateData.remaining_amount = Math.max(0, currentRemaining + grandTotalDelta);
         }
       }
 
