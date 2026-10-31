@@ -14,12 +14,12 @@ const validContactColumns = new Set([
 const validCustomerDetailColumns = new Set([
   'credit_period', 'billing_address', 'delivery_address', 'gstin', 'pan',
   'place_of_supply', 'reverse_charge', 'type_of_registration', 'total_amount',
-  'notes', 'payment', 'date', 'order_follow_up', 'no_1', 'no_2', 'category_type'
+  'notes', 'payment', 'date', 'order_follow_up', 'no_1', 'no_2', 'category_type', 'opening_no_1', 'opening_no_2', 'opening_balance'
 ]);
 
 const validSupplierDetailColumns = new Set([
   'credit_limit', 'division', 'due_date', 'payment_status', 'note', 'total_amount',
-  'notes', 'payment', 'date', 'order_follow_up', 'note_date', 'category_type', 'no_1', 'no_2'
+  'notes', 'payment', 'date', 'order_follow_up', 'note_date', 'category_type', 'no_1', 'no_2', 'opening_no_1', 'opening_no_2', 'opening_balance'
 ]);
 
 const Contact = {
@@ -48,17 +48,22 @@ const Contact = {
         } = baseData.details || {};
 
         // Update the INSERT query
+        const opNo1 = baseData.details?.opening_no_1 !== undefined && baseData.details?.opening_no_1 !== "" ? (parseFloat(baseData.details.opening_no_1) || 0) : (parseFloat(no_1) || 0);
+        const opNo2 = baseData.details?.opening_no_2 !== undefined && baseData.details?.opening_no_2 !== "" ? (parseFloat(baseData.details.opening_no_2) || 0) : (parseFloat(no_2) || 0);
+        const opBal = baseData.details?.opening_balance !== undefined && baseData.details?.opening_balance !== "" ? (parseFloat(baseData.details.opening_balance) || 0) : (total_amount !== undefined && total_amount !== "" ? (parseFloat(total_amount) || 0) : (opNo1 + opNo2));
+
         const customerQuery = `INSERT INTO customer_details 
         (contact_id, credit_period, billing_address, delivery_address, gstin, pan, 
          place_of_supply, reverse_charge, type_of_registration, total_amount,
-         notes, payment, date, order_follow_up,no_1,no_2) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+         notes, payment, date, order_follow_up, no_1, no_2, opening_no_1, opening_no_2, opening_balance) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         // Add the new values to the array
         await connection.query(customerQuery, [
           contactId, credit_period, billing_address, delivery_address, gstin, pan,
-          place_of_supply, reverse_charge, type_of_registration, total_amount,
-          notes, payment, sanitizeDate(date), order_follow_up, no_1, no_2
+          place_of_supply, reverse_charge, type_of_registration, total_amount !== undefined && total_amount !== "" ? total_amount : opBal,
+          notes, payment, sanitizeDate(date), order_follow_up, no_1 !== undefined && no_1 !== "" ? no_1 : opNo1, no_2 !== undefined && no_2 !== "" ? no_2 : opNo2,
+          opNo1, opNo2, opBal
         ]);
       }
       else if (type === 'Supplier') {
@@ -71,15 +76,20 @@ const Contact = {
         } = baseData.details || {};
 
         // Update the INSERT query
+        const opNo1 = baseData.details?.opening_no_1 !== undefined && baseData.details?.opening_no_1 !== "" ? (parseFloat(baseData.details.opening_no_1) || 0) : (parseFloat(no_1) || 0);
+        const opNo2 = baseData.details?.opening_no_2 !== undefined && baseData.details?.opening_no_2 !== "" ? (parseFloat(baseData.details.opening_no_2) || 0) : (parseFloat(no_2) || 0);
+        const opBal = baseData.details?.opening_balance !== undefined && baseData.details?.opening_balance !== "" ? (parseFloat(baseData.details.opening_balance) || 0) : (total_amount !== undefined && total_amount !== "" ? (parseFloat(total_amount) || 0) : (opNo1 + opNo2));
+
         const supplierQuery = `INSERT INTO supplier_details 
         (contact_id, credit_limit, division, due_date, payment_status, note, total_amount,
-         notes, payment, date, order_follow_up, note_date, no_1, no_2) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+         notes, payment, date, order_follow_up, note_date, no_1, no_2, opening_no_1, opening_no_2, opening_balance) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         // Add the new values to the array
         await connection.query(supplierQuery, [
-          contactId, credit_limit, division, sanitizeDate(due_date), payment_status, note, total_amount,
-          notes, payment, sanitizeDate(date), order_follow_up, sanitizeDate(note_date), no_1, no_2
+          contactId, credit_limit, division, sanitizeDate(due_date), payment_status, note, total_amount !== undefined && total_amount !== "" ? total_amount : opBal,
+          notes, payment, sanitizeDate(date), order_follow_up, sanitizeDate(note_date), no_1 !== undefined && no_1 !== "" ? no_1 : opNo1, no_2 !== undefined && no_2 !== "" ? no_2 : opNo2,
+          opNo1, opNo2, opBal
         ]);
       }
 
@@ -110,6 +120,9 @@ const Contact = {
               ELSE COALESCE(sd.total_amount, 0)
             END AS total_amount,
             cd.notes, cd.payment, cd.date, cd.order_follow_up,
+            COALESCE(cd.opening_no_1, sd.opening_no_1, 0) AS opening_no_1,
+            COALESCE(cd.opening_no_2, sd.opening_no_2, 0) AS opening_no_2,
+            COALESCE(cd.opening_balance, sd.opening_balance, 0) AS opening_balance,
             CASE 
               WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
                 COALESCE((SELECT SUM(i.reference_no_1) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
@@ -157,6 +170,9 @@ const Contact = {
               ELSE COALESCE(sd.total_amount, 0)
             END AS total_amount,
             cd.notes, cd.payment, cd.date, cd.order_follow_up,
+            COALESCE(cd.opening_no_1, sd.opening_no_1, 0) AS opening_no_1,
+            COALESCE(cd.opening_no_2, sd.opening_no_2, 0) AS opening_no_2,
+            COALESCE(cd.opening_balance, sd.opening_balance, 0) AS opening_balance,
             CASE 
               WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
                 COALESCE((SELECT SUM(i.reference_no_1) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
@@ -316,6 +332,9 @@ const Contact = {
               ELSE COALESCE(sd.total_amount, 0)
             END AS total_amount,
             cd.notes, cd.payment, cd.date, cd.order_follow_up,
+            COALESCE(cd.opening_no_1, sd.opening_no_1, 0) AS opening_no_1,
+            COALESCE(cd.opening_no_2, sd.opening_no_2, 0) AS opening_no_2,
+            COALESCE(cd.opening_balance, sd.opening_balance, 0) AS opening_balance,
             CASE 
               WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
                 COALESCE((SELECT SUM(i.reference_no_1) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
@@ -531,6 +550,9 @@ const Contact = {
               ELSE COALESCE(sd.total_amount, 0)
             END AS total_amount,
             cd.notes, cd.payment, cd.date, cd.order_follow_up,
+            COALESCE(cd.opening_no_1, sd.opening_no_1, 0) AS opening_no_1,
+            COALESCE(cd.opening_no_2, sd.opening_no_2, 0) AS opening_no_2,
+            COALESCE(cd.opening_balance, sd.opening_balance, 0) AS opening_balance,
             CASE 
               WHEN c.type = 'Customer' AND COALESCE(cd.no_1, 0) = 0 AND COALESCE(cd.no_2, 0) = 0 THEN
                 COALESCE((SELECT SUM(i.reference_no_1) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
