@@ -75,9 +75,38 @@ const SalesOrder = {
   },
 
   update: async (id, orderData) => {
-    // Protect initial_qty and invoice_status from manual edits
-    delete orderData.initial_qty;
-    delete orderData.invoice_status;
+    // If initial_qty is provided, validate against already invoiced quantity
+    if (orderData.initial_qty !== undefined && orderData.initial_qty !== null && orderData.initial_qty !== '') {
+      const [existingRows] = await db.query(
+        'SELECT initial_qty, quantity_pcs, invoice_status FROM sales_orders WHERE id = ?',
+        [id]
+      );
+      if (existingRows.length > 0) {
+        const currentInit = parseFloat(existingRows[0].initial_qty) || 0;
+        const currentRemaining = parseFloat(existingRows[0].quantity_pcs) || 0;
+        const alreadyInvoiced = Math.max(0, currentInit - currentRemaining);
+        const newInit = parseFloat(orderData.initial_qty) || 0;
+
+        if (newInit < alreadyInvoiced) {
+          throw new Error(`Initial Qty cannot be less than ${alreadyInvoiced} (${alreadyInvoiced} pcs already invoiced/dispatched)`);
+        }
+
+        orderData.initial_qty = newInit;
+        const newRemaining = Math.max(0, newInit - alreadyInvoiced);
+        orderData.quantity_pcs = newRemaining;
+
+        if (newRemaining === 0) {
+          orderData.invoice_status = 'Invoiced';
+        } else if (newRemaining < newInit) {
+          orderData.invoice_status = 'Partial';
+        } else {
+          orderData.invoice_status = 'Uninvoiced';
+        }
+      }
+    } else {
+      delete orderData.initial_qty;
+      delete orderData.invoice_status;
+    }
 
     // Recalculate total_rs if 0 or missing and quantity/rates are available
     if (orderData.total_rs === undefined || orderData.total_rs === null || orderData.total_rs === '' || Number(orderData.total_rs) === 0) {

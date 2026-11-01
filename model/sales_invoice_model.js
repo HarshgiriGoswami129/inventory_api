@@ -38,22 +38,15 @@ const SalesInvoice = {
       if (item_code && item_finish && total_pcs && total_pcs > 0) {
         const updateQtyQuery = `
           UPDATE sales_orders
-          SET quantity_pcs = GREATEST(quantity_pcs - ?, 0)
+          SET invoice_status = CASE WHEN quantity_pcs - ? <= 0 THEN 'Invoiced' ELSE 'Partial' END, quantity_pcs = GREATEST(quantity_pcs - ?, 0)
           WHERE item_code = ?
           AND finish = ?
           AND quantity_pcs > 0
         `;
-        await connection.query(updateQtyQuery, [total_pcs, item_code, item_finish]);
+        await connection.query(updateQtyQuery, [total_pcs, total_pcs, item_code, item_finish]);
 
-        // Additionally update invoice_status to 'pedding'
-        const updateStatusQuery = `
-          UPDATE sales_orders
-          SET invoice_status = 'pedding'
-          WHERE item_code = ?
-          AND finish = ?
-        `;
-        await connection.query(updateStatusQuery, [item_code, item_finish]);
-      }
+
+              }
 
       await connection.commit();
       connection.release();
@@ -131,7 +124,9 @@ const SalesInvoice = {
       note,
       rate_pcs
     FROM sales_orders 
-    WHERE customer_id = ? AND (invoice_status IS NULL OR invoice_status != 'completed')
+    WHERE customer_id = ? 
+      AND quantity_pcs > 0 
+      AND (invoice_status IS NULL OR (invoice_status != 'Invoiced' AND invoice_status != 'completed'))
   `;
 
     const [salesOrders] = await db.query(salesOrderQuery, [customerId]);
@@ -325,10 +320,10 @@ const SalesInvoice = {
         if (item_code && item_finish && total_pcs > 0) {
           const updateQtyQuery = `
             UPDATE sales_orders
-            SET quantity_pcs = GREATEST(quantity_pcs - ?, 0), invoice_status = 'pedding'
+            SET invoice_status = CASE WHEN quantity_pcs - ? <= 0 THEN 'Invoiced' ELSE 'Partial' END, quantity_pcs = GREATEST(quantity_pcs - ?, 0)
             WHERE item_code = ? AND finish = ? AND quantity_pcs > 0
           `;
-          await connection.query(updateQtyQuery, [total_pcs, item_code, item_finish]);
+          await connection.query(updateQtyQuery, [total_pcs, total_pcs, item_code, item_finish]);
         }
 
         // 3. UPDATE master_items
