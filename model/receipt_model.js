@@ -1,3 +1,4 @@
+const { recalculateSupplierPIBalances } = require('../utils/supplier_balance_helper');
 const db = require('../config/db');
 const Receipt = {
   create: async (receiptData) => {
@@ -526,31 +527,11 @@ const Receipt = {
         );
       }
 
-      // Step 4: Update supplier_details total_amount
-      await connection.query(
-        `UPDATE supplier_details 
-         SET total_amount = COALESCE(total_amount, 0) - ? 
-         WHERE contact_id = ?`,
-        [transferAmount, supplier_id]
-      );
-
-      // Step 5: FIFO deduction on Supplier's oldest unpaid purchase invoices
-      if (supplierCode) {
-        const [unpaidPIs] = await connection.query(
-          "SELECT id, balance_due FROM purchase_invoices WHERE user = ? AND balance_due > 0 ORDER BY id ASC FOR UPDATE",
-          [supplierCode]
-        );
-        let remaining = transferAmount;
-        for (const pi of unpaidPIs) {
-          if (remaining <= 0) break;
-          const piBalance = parseFloat(pi.balance_due) || 0;
-          const deduction = Math.min(remaining, piBalance);
-          await connection.query(
-            "UPDATE purchase_invoices SET balance_due = balance_due - ? WHERE id = ?",
-            [deduction, pi.id]
-          );
-          remaining -= deduction;
-        }
+      // Step 4 & 5: Recalculate supplier balance and FIFO settle purchase invoices
+      try {
+        await recalculateSupplierPIBalances(supplier_id, connection);
+      } catch (tErr) {
+        console.error('Error recalculating supplier balance on transfer:', tErr.message);
       }
 
       await connection.commit();

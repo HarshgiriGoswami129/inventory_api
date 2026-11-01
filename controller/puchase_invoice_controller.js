@@ -336,6 +336,25 @@ const purchaseInvoiceController = {
     }
   },
 
+  // Recalculate purchase invoice balances and supplier total balance
+  recalculateBalances: async (req, res) => {
+    try {
+      const { supplier_id, supplier_code } = req.body || {};
+      const { recalculateSupplierPIBalances, recalculateAllSuppliersBalances } = require('../utils/supplier_balance_helper');
+
+      const identifier = supplier_id || supplier_code;
+      if (identifier) {
+        const result = await recalculateSupplierPIBalances(identifier);
+        return res.status(200).json(result);
+      } else {
+        const result = await recalculateAllSuppliersBalances();
+        return res.status(200).json(result);
+      }
+    } catch (error) {
+      console.error('Error recalculating balances:', error);
+      res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    }
+  },
 };
 
 module.exports = purchaseInvoiceController;

@@ -54,5 +54,6 @@ router.post('/batchDeletePurchaseInvoices', [authMiddleware, checkPermission('pu
 router.post('/getDataFromInventoryItem', [authMiddleware, checkPermission('purchase_invoices')], purchaseInvoiceController.getInventoryDetailsByCodeUser);
 router.post('/getSummaries', [authMiddleware, checkPermission('purchase_invoices')], purchaseInvoiceController.getInvoiceSummaries);
 router.post('/getUserCode', [authMiddleware, checkPermission('purchase_invoices')], purchaseInvoiceController.getUserCode);
+router.post('/recalculateBalances', [authMiddleware, checkPermission('purchase_invoices')], purchaseInvoiceController.recalculateBalances);
 
 module.exports = router;

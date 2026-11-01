@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { recalculateSupplierPIBalances } = require('../utils/supplier_balance_helper');
 
 const PurchaseInvoice = {
   createWithStockUpdate: async (invoiceData, lineItems, userCode, invoiceTotal) => {
@@ -226,12 +227,12 @@ const PurchaseInvoice = {
         [calculatedTotal, calculatedTotal, newInvoiceId]
       );
 
-      // Update supplier's total amount if applicable
+      // Recalculate supplier balances: auto-applies advance payments/credits to balance_due in FIFO order
       const rawSupplierCode = userCode || sanitizedInvoice.code_user || invoiceData.supplier_code || sanitizedInvoice.user || '';
       const supplierCodeVal = String(rawSupplierCode).trim();
       const finalInvoiceTotal = calculatedTotal > 0 ? calculatedTotal : (parseFloat(invoiceTotal) || 0);
 
-      if (supplierCodeVal && finalInvoiceTotal > 0) {
+      if (supplierCodeVal) {
         try {
           const baseCode = supplierCodeVal.split('_')[0];
           const [contacts] = await connection.query(
@@ -246,20 +247,18 @@ const PurchaseInvoice = {
               [contactId]
             );
 
-            if (supRows.length > 0) {
+            if (supRows.length === 0) {
               await connection.query(
-                'UPDATE supplier_details SET total_amount = COALESCE(total_amount, 0) + ? WHERE contact_id = ?',
-                [finalInvoiceTotal, contactId]
-              );
-            } else {
-              await connection.query(
-                'INSERT INTO supplier_details (contact_id, total_amount) VALUES (?, ?)',
+                'INSERT INTO supplier_details (contact_id, total_amount, opening_balance) VALUES (?, ?, 0)',
                 [contactId, finalInvoiceTotal]
               );
             }
+
+            // Centralized FIFO recalculation: reduces balance_due by any advance credits & syncs total
+            await recalculateSupplierPIBalances(contactId, connection);
           }
         } catch (supplierErr) {
-          console.log('Supplier total update error:', supplierErr.message);
+          console.error('Supplier PI balance calculation error on create:', supplierErr.message);
         }
       }
 
@@ -415,29 +414,18 @@ const PurchaseInvoice = {
         const newBalance = Math.max(0, newTotal - amountPaid);
 
         await connection.query(
-          'UPDATE purchase_invoices SET total_amount = ?, balance_due = ? WHERE id = ?',
-          [newTotal, newBalance, invoiceId]
+          'UPDATE purchase_invoices SET total_amount = ? WHERE id = ?',
+          [newTotal, invoiceId]
         );
 
-        // Update supplier_details total_amount by delta
-        const delta = newTotal - oldTotal;
+        // Recalculate supplier balances and FIFO allocation across all PIs
         const rawSupplierCode = sanitizedInvoice.code_user || invRows[0].code_user || sanitizedInvoice.user || invRows[0].user || '';
         const supplierCodeVal = String(rawSupplierCode).trim();
-        if (supplierCodeVal && Math.abs(delta) > 0.001) {
+        if (supplierCodeVal) {
           try {
-            const baseCode = supplierCodeVal.split('_')[0];
-            const [contacts] = await connection.query(
-              'SELECT id FROM contacts WHERE code = ? OR code = ? OR contact_name = ? LIMIT 1',
-              [supplierCodeVal, baseCode, supplierCodeVal]
-            );
-            if (contacts.length > 0) {
-              await connection.query(
-                'UPDATE supplier_details SET total_amount = COALESCE(total_amount, 0) + ? WHERE contact_id = ?',
-                [delta, contacts[0].id]
-              );
-            }
+            await recalculateSupplierPIBalances(supplierCodeVal, connection);
           } catch (supplierErr) {
-            console.log('Supplier total update error:', supplierErr.message);
+            console.error('Supplier total update error on PI update:', supplierErr.message);
           }
         }
       }
@@ -789,6 +777,15 @@ const PurchaseInvoice = {
       await connection.query('DELETE FROM purchase_invoice_items WHERE invoice_id = ?', [id]);
       const [deleteResult] = await connection.query('DELETE FROM purchase_invoices WHERE id = ?', [id]);
 
+      // 6. Recalculate remaining supplier invoices and total balance
+      if (supplierCodeVal) {
+        try {
+          await recalculateSupplierPIBalances(supplierCodeVal, connection);
+        } catch (supErr) {
+          console.error('Supplier balance recalculation on undo error:', supErr.message);
+        }
+      }
+
       if (shouldManageTransaction) {
         await connection.commit();
       }
@@ -812,7 +809,16 @@ const PurchaseInvoice = {
   },
 
   deleteInvoice: async (id) => {
+    const [invRows] = await db.query('SELECT code_user, user FROM purchase_invoices WHERE id = ?', [id]);
+    const supplierCode = invRows[0]?.code_user || invRows[0]?.user;
     const [result] = await db.query('DELETE FROM purchase_invoices WHERE id = ?', [id]);
+    if (supplierCode) {
+      try {
+        await recalculateSupplierPIBalances(supplierCode);
+      } catch (err) {
+        console.error('Recalculate balance on deleteInvoice error:', err.message);
+      }
+    }
     return result.affectedRows;
   },
 

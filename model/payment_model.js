@@ -1,3 +1,4 @@
+const { recalculateSupplierPIBalances } = require('../utils/supplier_balance_helper');
 const db = require('../config/db');
 const Payment = {
   create: async (paymentData) => {
@@ -80,52 +81,12 @@ const Payment = {
         }
       }
 
-      // 4. FIFO: Settle Supplier Opening Due first, then oldest purchase invoices
+      // 4. FIFO: Settle Supplier Opening Due first, then oldest purchase invoices, and sync balance
       if (contact_id) {
-        // Get supplier code from contacts
-        const [supplierRows] = await connection.query('SELECT code FROM contacts WHERE id = ?', [contact_id]);
-        if (supplierRows.length > 0) {
-          const supplierCode = supplierRows[0].code;
-
-          // Get supplier total balance before this payment (step 3 already subtracted amount)
-          const [suppDetailRows] = await connection.query('SELECT total_amount FROM supplier_details WHERE contact_id = ?', [contact_id]);
-          const currentTotal = parseFloat(suppDetailRows[0]?.total_amount) || 0;
-          const previousTotal = currentTotal + parseFloat(amount);
-
-          // Get total unpaid PIs
-          const [piSumRows] = await connection.query(
-            'SELECT COALESCE(SUM(balance_due), 0) AS total_pi_due FROM purchase_invoices WHERE user = ? AND balance_due > 0',
-            [supplierCode]
-          );
-          const totalPIDue = parseFloat(piSumRows[0]?.total_pi_due) || 0;
-
-          // Unsettled opening due
-          const unsettledOpeningDue = Math.max(0, previousTotal - totalPIDue);
-          let remainingPayment = parseFloat(amount);
-
-          // 1. Settle supplier opening due first
-          if (unsettledOpeningDue > 0) {
-            const openingSettled = Math.min(remainingPayment, unsettledOpeningDue);
-            remainingPayment -= openingSettled;
-          }
-
-          // 2. Settle oldest purchase invoices with remaining payment
-          if (remainingPayment > 0) {
-            const [unpaidPIs] = await connection.query(
-              'SELECT id, balance_due FROM purchase_invoices WHERE user = ? AND balance_due > 0 ORDER BY id ASC FOR UPDATE',
-              [supplierCode]
-            );
-            for (const pi of unpaidPIs) {
-              if (remainingPayment <= 0) break;
-              const piBalance = parseFloat(pi.balance_due);
-              const deduction = Math.min(remainingPayment, piBalance);
-              await connection.query(
-                'UPDATE purchase_invoices SET balance_due = balance_due - ? WHERE id = ?',
-                [deduction, pi.id]
-              );
-              remainingPayment -= deduction;
-            }
-          }
+        try {
+          await recalculateSupplierPIBalances(contact_id, connection);
+        } catch (fifoErr) {
+          console.error('Error recalculating supplier balance on payment:', fifoErr.message);
         }
       }
 
@@ -162,6 +123,13 @@ const Payment = {
       await connection.query(updateQuery, values);
 
       const [rows] = await connection.query('SELECT * FROM payments WHERE id = ?', [id]);
+      if (rows.length > 0 && rows[0].contact_id) {
+        try {
+          await recalculateSupplierPIBalances(rows[0].contact_id, connection);
+        } catch (uErr) {
+          console.error('Error in payment update balance recalc:', uErr.message);
+        }
+      }
       await connection.commit();
 
       return rows[0];
@@ -178,7 +146,18 @@ const Payment = {
     try {
       await connection.beginTransaction();
 
+      const [pRows] = await connection.query('SELECT contact_id FROM payments WHERE id = ?', [id]);
+      const contactId = pRows[0]?.contact_id;
+
       const [result] = await connection.query('DELETE FROM payments WHERE id = ?', [id]);
+
+      if (contactId) {
+        try {
+          await recalculateSupplierPIBalances(contactId, connection);
+        } catch (dErr) {
+          console.error('Error in payment delete balance recalc:', dErr.message);
+        }
+      }
 
       await connection.commit();
       return result.affectedRows;
