@@ -287,7 +287,10 @@ const SalesOrder = {
           "CAST(so.qty_ctn AS CHAR)",
           "CAST(so.total_rs AS CHAR)",
           "CAST(ROUND(so.quantity_pcs * so.rate_pcs, 2) AS CHAR)",
-          "CAST(ROUND(so.total_kg * so.rate_kz, 2) AS CHAR)"
+          "CAST(ROUND(so.total_kg * so.rate_kz, 2) AS CHAR)",
+          "CAST(so.kg_dzn AS CHAR)",
+          "COALESCE(so.invoice_status, '')",
+          "(CASE WHEN so.initial_qty IS NULL THEN 'Uninvoiced' WHEN so.quantity_pcs = so.initial_qty THEN 'Uninvoiced' WHEN so.quantity_pcs > 0 AND so.quantity_pcs < so.initial_qty THEN 'Partial' WHEN so.quantity_pcs = 0 THEN 'Invoiced' ELSE 'Uninvoiced' END)"
         ];
 
         const termConditions = terms.map(term => {
