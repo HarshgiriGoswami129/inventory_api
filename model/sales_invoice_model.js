@@ -124,12 +124,12 @@ const SalesInvoice = {
       note,
       rate_pcs
     FROM sales_orders 
-    WHERE customer_id = ? 
+    WHERE (customer_id = ? OR customer_code = ?) 
       AND quantity_pcs > 0 
       AND (invoice_status IS NULL OR (invoice_status != 'Invoiced' AND invoice_status != 'completed'))
   `;
 
-    const [salesOrders] = await db.query(salesOrderQuery, [customerId]);
+    const [salesOrders] = await db.query(salesOrderQuery, [customerId, customerId]);
 
     // If we didn't find any sales orders, we can stop here.
     if (salesOrders.length === 0) {

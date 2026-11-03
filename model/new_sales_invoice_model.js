@@ -267,12 +267,37 @@ const Invoice = {
 
         let total_pcs_to_invoice = total_pcs;
         if (item_code && item_finish && total_pcs_to_invoice > 0) {
+          const cleanFinish = String(item_finish).replace(/\s*\(Scrap:.*?\)\s*/gi, '').trim();
+          const cleanItemCode = String(item_code).trim();
+          const customerIdVal = String(invoiceData.customer_id || '').trim();
+          const itemScrap = parseFloat(item.brass || item.scrap_lb || item.scrap) || null;
+
           const [salesOrders] = await connection.query(`
-              SELECT id, quantity_pcs FROM sales_orders
-              WHERE (item_code = ? OR item_code = ?) AND finish = ? AND (customer_code = ? OR customer_id = ?) AND quantity_pcs > 0
-              ORDER BY id ASC
+              SELECT id, quantity_pcs, initial_qty, scrap FROM sales_orders
+              WHERE (
+                item_code = ? 
+                OR item_code = ? 
+                OR ? LIKE CONCAT(item_code, '%')
+              ) 
+              AND (finish = ? OR finish = ?) 
+              AND (
+                customer_code = ? 
+                OR customer_id = ? 
+                OR customer_id LIKE CONCAT('%', ?)
+                OR ? LIKE CONCAT('%', customer_code)
+              ) 
+              AND quantity_pcs > 0
+              ORDER BY 
+                CASE WHEN ? IS NOT NULL AND scrap = ? THEN 0 ELSE 1 END,
+                id ASC
               FOR UPDATE
-          `, [item_code, masterItemCode || item_code, item_finish, invoiceData.customer_id, invoiceData.customer_id]);
+          `, [
+            cleanItemCode, masterItemCode || cleanItemCode, cleanItemCode,
+            cleanFinish, item_finish,
+            customerIdVal, customerIdVal, customerIdVal, customerIdVal,
+            itemScrap, itemScrap
+          ]);
+
           if (salesOrders && salesOrders.length > 0) {
             for (const order of salesOrders) {
               if (total_pcs_to_invoice <= 0) {
@@ -280,9 +305,13 @@ const Invoice = {
               }
               const available_in_this_order = parseFloat(order.quantity_pcs) || 0;
               const amount_to_subtract = Math.min(total_pcs_to_invoice, available_in_this_order);
+              const newRemaining = Math.max(0, available_in_this_order - amount_to_subtract);
+              const initialQty = order.initial_qty == null ? available_in_this_order : parseFloat(order.initial_qty) || 0;
+              const newStatus = newRemaining <= 0 ? 'Invoiced' : (newRemaining < initialQty ? 'Partial' : 'Uninvoiced');
+
               await connection.query(
-                'UPDATE sales_orders SET quantity_pcs = quantity_pcs - ? WHERE id = ?',
-                [amount_to_subtract, order.id]
+                'UPDATE sales_orders SET quantity_pcs = ?, invoice_status = ? WHERE id = ?',
+                [newRemaining, newStatus, order.id]
               );
               total_pcs_to_invoice -= amount_to_subtract;
             }
@@ -292,8 +321,14 @@ const Invoice = {
               await connection.query(
                 `UPDATE sales_orders
                  SET invoice_status = 'over_invoiced'
-                 WHERE item_code = ? AND finish = ? AND (customer_code = ? OR customer_id = ?)`,
-                [item_code, item_finish, invoiceData.customer_id, invoiceData.customer_id]
+                 WHERE (item_code = ? OR item_code = ? OR ? LIKE CONCAT(item_code, '%'))
+                   AND (finish = ? OR finish = ?)
+                   AND (customer_code = ? OR customer_id = ? OR customer_id LIKE CONCAT('%', ?) OR ? LIKE CONCAT('%', customer_code))`,
+                [
+                  cleanItemCode, masterItemCode || cleanItemCode, cleanItemCode,
+                  cleanFinish, item_finish,
+                  customerIdVal, customerIdVal, customerIdVal, customerIdVal
+                ]
               );
             }
           }
@@ -491,13 +526,24 @@ const Invoice = {
 
         if (deltaPcs > 0) {
           let remaining = deltaPcs;
+          const cleanFinish = String(itemFinish).replace(/\s*\(Scrap:.*?\)\s*/gi, '').trim();
+          const cleanItemCode = String(itemCode).trim();
+          const customerIdVal = String(invoice.customer_id || '').trim();
+
           const [salesOrders] = await connection.query(
-            `SELECT id, quantity_pcs
+            `SELECT id, quantity_pcs, initial_qty
              FROM sales_orders
-             WHERE (item_code = ? OR item_code = ?) AND finish = ? AND (customer_code = ? OR customer_id = ?) AND quantity_pcs > 0
+             WHERE (item_code = ? OR item_code = ? OR ? LIKE CONCAT(item_code, '%'))
+               AND (finish = ? OR finish = ?)
+               AND (customer_code = ? OR customer_id = ? OR customer_id LIKE CONCAT('%', ?) OR ? LIKE CONCAT('%', customer_code))
+               AND quantity_pcs > 0
              ORDER BY id ASC
              FOR UPDATE`,
-            [itemCode, masterItemCode || itemCode, itemFinish, invoice.customer_id, invoice.customer_id]
+            [
+              cleanItemCode, masterItemCode || cleanItemCode, cleanItemCode,
+              cleanFinish, itemFinish,
+              customerIdVal, customerIdVal, customerIdVal, customerIdVal
+            ]
           );
 
           for (const order of salesOrders) {
@@ -506,9 +552,13 @@ const Invoice = {
             const deduct = Math.min(remaining, available);
             if (deduct <= 0) continue;
 
+            const newRemaining = Math.max(0, available - deduct);
+            const initialQty = order.initial_qty == null ? available : toNum(order.initial_qty);
+            const newStatus = newRemaining <= 0 ? 'Invoiced' : (newRemaining < initialQty ? 'Partial' : 'Uninvoiced');
+
             await connection.query(
-              'UPDATE sales_orders SET quantity_pcs = quantity_pcs - ? WHERE id = ?',
-              [deduct, order.id]
+              'UPDATE sales_orders SET quantity_pcs = ?, invoice_status = ? WHERE id = ?',
+              [newRemaining, newStatus, order.id]
             );
             remaining -= deduct;
           }
@@ -518,13 +568,23 @@ const Invoice = {
           }
         } else {
           let remainingRestore = Math.abs(deltaPcs);
+          const cleanFinish = String(itemFinish).replace(/\s*\(Scrap:.*?\)\s*/gi, '').trim();
+          const cleanItemCode = String(itemCode).trim();
+          const customerIdVal = String(invoice.customer_id || '').trim();
+
           const [salesOrders] = await connection.query(
             `SELECT id, quantity_pcs, initial_qty
              FROM sales_orders
-             WHERE (item_code = ? OR item_code = ?) AND finish = ? AND (customer_code = ? OR customer_id = ?)
+             WHERE (item_code = ? OR item_code = ? OR ? LIKE CONCAT(item_code, '%'))
+               AND (finish = ? OR finish = ?)
+               AND (customer_code = ? OR customer_id = ? OR customer_id LIKE CONCAT('%', ?) OR ? LIKE CONCAT('%', customer_code))
              ORDER BY id ASC
              FOR UPDATE`,
-            [itemCode, masterItemCode || itemCode, itemFinish, invoice.customer_id, invoice.customer_id]
+            [
+              cleanItemCode, masterItemCode || cleanItemCode, cleanItemCode,
+              cleanFinish, itemFinish,
+              customerIdVal, customerIdVal, customerIdVal, customerIdVal
+            ]
           );
 
           if (salesOrders.length === 0) {
@@ -540,9 +600,12 @@ const Invoice = {
             if (canRestore <= 0) continue;
 
             const addQty = Math.min(remainingRestore, canRestore);
+            const newQty = currentQty + addQty;
+            const newStatus = newQty >= maxQty ? 'Uninvoiced' : 'Partial';
+
             await connection.query(
-              'UPDATE sales_orders SET quantity_pcs = quantity_pcs + ? WHERE id = ?',
-              [addQty, order.id]
+              'UPDATE sales_orders SET quantity_pcs = ?, invoice_status = ? WHERE id = ?',
+              [newQty, newStatus, order.id]
             );
             remainingRestore -= addQty;
           }
@@ -1018,14 +1081,24 @@ const Invoice = {
         }
 
         if (itemFinish) {
+          const cleanFinish = String(itemFinish).replace(/\s*\(Scrap:.*?\)\s*/gi, '').trim();
+          const cleanItemCode = String(itemCode).trim();
+          const customerIdVal = String(invoice.customer_id || '').trim();
+
           let remainingRestore = totalPcs;
           const [salesOrders] = await connection.query(
             `SELECT id, quantity_pcs, initial_qty
              FROM sales_orders
-             WHERE (item_code = ? OR item_code = ?) AND finish = ? AND (customer_code = ? OR customer_id = ?)
+             WHERE (item_code = ? OR item_code = ? OR ? LIKE CONCAT(item_code, '%'))
+               AND (finish = ? OR finish = ?)
+               AND (customer_code = ? OR customer_id = ? OR customer_id LIKE CONCAT('%', ?) OR ? LIKE CONCAT('%', customer_code))
              ORDER BY id ASC
              FOR UPDATE`,
-            [itemCode, masterItemCode || itemCode, itemFinish, invoice.customer_id, invoice.customer_id]
+            [
+              cleanItemCode, masterItemCode || cleanItemCode, cleanItemCode,
+              cleanFinish, itemFinish,
+              customerIdVal, customerIdVal, customerIdVal, customerIdVal
+            ]
           );
 
           for (const order of salesOrders) {
@@ -1038,9 +1111,12 @@ const Invoice = {
             if (canRestore <= 0) continue;
 
             const addQty = Math.min(remainingRestore, canRestore);
+            const newQty = currentQty + addQty;
+            const newStatus = newQty >= maxQty ? 'Uninvoiced' : 'Partial';
+
             await connection.query(
-              'UPDATE sales_orders SET quantity_pcs = quantity_pcs + ? WHERE id = ?',
-              [addQty, order.id]
+              'UPDATE sales_orders SET quantity_pcs = ?, invoice_status = ? WHERE id = ?',
+              [newQty, newStatus, order.id]
             );
             remainingRestore -= addQty;
           }
