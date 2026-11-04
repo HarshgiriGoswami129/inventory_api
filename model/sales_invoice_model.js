@@ -113,7 +113,7 @@ const SalesInvoice = {
   },
 
   findUnfinishedFinishesByCustomerId: async (customerId, code_user) => {
-    // Query 1: Get all unfinished sales orders for the customer (this is your original query)
+    // Query 1: Get all unfinished sales orders for the customer
     const salesOrderQuery = `
     SELECT DISTINCT
       finish, 
@@ -129,16 +129,54 @@ const SalesInvoice = {
       AND (invoice_status IS NULL OR (invoice_status != 'Invoiced' AND invoice_status != 'completed'))
   `;
 
-    const [salesOrders] = await db.query(salesOrderQuery, [customerId, customerId]);
+    let [salesOrders] = await db.query(salesOrderQuery, [customerId, customerId]);
 
-    // If we didn't find any sales orders, we can stop here.
+    // Fallback 1: If no unfinished sales orders found (e.g. order already fully invoiced or editing existing invoice),
+    // check all sales orders for this customer / code_user regardless of quantity_pcs / invoice_status
     if (salesOrders.length === 0) {
-      return [];
+      const allSalesOrdersQuery = `
+        SELECT DISTINCT
+          finish, 
+          kg_box, 
+          scrap,
+          labour,
+          pcs_box,
+          note,
+          rate_pcs
+        FROM sales_orders 
+        WHERE (customer_id = ? OR customer_code = ?)
+      `;
+      [salesOrders] = await db.query(allSalesOrdersQuery, [customerId, customerId]);
     }
 
     const searchCode = code_user || customerId || "";
     const cleanItemCode = searchCode.replace(/[^A-Za-z0-9]/g, "").substring(0, 7);
     const userCode = searchCode.length > 7 ? searchCode.substring(7) : "";
+
+    // Fallback 2: If still no sales orders found, fetch finishes from inventory_items
+    if (salesOrders.length === 0) {
+      const inventoryQuery = `
+        SELECT DISTINCT
+          finish, 
+          kg_box, 
+          scrap, 
+          labour, 
+          pcs_box, 
+          '' as note, 
+          rate_pcs
+        FROM inventory_items
+        WHERE code_user = ? 
+           OR code_user LIKE CONCAT(?, '_%') 
+           OR (item_code = ? AND user = ?)
+           OR CONCAT(item_code, user) = ?
+      `;
+      [salesOrders] = await db.query(inventoryQuery, [searchCode, searchCode, cleanItemCode, userCode, searchCode]);
+    }
+
+    // If still no finishes found, we can stop here.
+    if (salesOrders.length === 0) {
+      return [];
+    }
 
     // Query 2: Get description, pic_or_kg, kg_dzn, empty_wt, actual_wt, box_name, shrink_name, ld_name, rate_adjustment from inventory_items
     // Prioritize exact customer/user matches over other customers' records
