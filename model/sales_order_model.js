@@ -268,37 +268,76 @@ const SalesOrder = {
     if (search && search.trim()) {
       const terms = search.trim().split(/\s+/).filter(t => t.length > 0);
       if (terms.length > 0) {
-        const searchFields = [
-          'so.order_number', 'so.customer_id', 'so.item_code', 'so.finish',
-          'so.manufacturer_name', 'so.po_vr', 'so.note', 'so.customer_code',
-          'so.customer_name', 'c.contact_name',
-          "DATE_FORMAT(so.order_date, '%d-%m-%Y')",
-          "DATE_FORMAT(so.order_date, '%d-%m-%y')",
-          "DATE_FORMAT(so.order_date, '%d/%m/%Y')",
-          "DATE_FORMAT(so.order_date, '%d/%m/%y')",
-          "DATE_FORMAT(so.order_date, '%Y-%m-%d')",
-          "DATE_FORMAT(so.order_date, '%d-%m')",
-          "DATE_FORMAT(so.order_date, '%d/%m')",
-          "CAST(so.order_date AS CHAR)",
-          "CAST(so.rate_pcs AS CHAR)",
-          "CAST(so.rate_kz AS CHAR)",
-          "CAST(so.quantity_pcs AS CHAR)",
-          "CAST(so.total_kg AS CHAR)",
-          "CAST(so.qty_ctn AS CHAR)",
-          "CAST(so.total_rs AS CHAR)",
-          "CAST(ROUND(so.quantity_pcs * so.rate_pcs, 2) AS CHAR)",
-          "CAST(ROUND(so.total_kg * so.rate_kz, 2) AS CHAR)",
-          "CAST(so.kg_dzn AS CHAR)",
-          "COALESCE(so.invoice_status, '')",
-          "(CASE WHEN so.initial_qty IS NULL THEN 'Uninvoiced' WHEN so.quantity_pcs = so.initial_qty THEN 'Uninvoiced' WHEN so.quantity_pcs > 0 AND so.quantity_pcs < so.initial_qty THEN 'Partial' WHEN so.quantity_pcs = 0 THEN 'Invoiced' ELSE 'Uninvoiced' END)"
-        ];
+        const dynamicStatusExpr = `(CASE
+          WHEN so.initial_qty IS NULL THEN 'Uninvoiced'
+          WHEN so.quantity_pcs = so.initial_qty THEN 'Uninvoiced'
+          WHEN so.quantity_pcs > 0 AND so.quantity_pcs < so.initial_qty THEN 'Partial'
+          WHEN so.quantity_pcs = 0 THEN 'Invoiced'
+          ELSE 'Uninvoiced'
+        END)`;
 
         const termConditions = terms.map(term => {
-          const fieldConditions = searchFields.map(field => {
+          const lowerTerm = term.toLowerCase();
+          const fieldConds = [];
+
+          // 1. Precise status matching to prevent 'Uninvoiced' matching 'invoiced'
+          if (lowerTerm === 'invoiced' || lowerTerm === 'invoice' || lowerTerm === 'inv') {
+            fieldConds.push(`${dynamicStatusExpr} = 'Invoiced'`);
+          } else if (lowerTerm === 'uninvoiced' || lowerTerm === 'uninv' || lowerTerm === 'un-invoiced') {
+            fieldConds.push(`${dynamicStatusExpr} = 'Uninvoiced'`);
+          } else if (lowerTerm === 'partial' || lowerTerm === 'part') {
+            fieldConds.push(`${dynamicStatusExpr} = 'Partial'`);
+          }
+
+          // 2. Numeric matching for kg_dzn and other numeric fields
+          const numVal = parseFloat(term);
+          if (!isNaN(numVal) && !term.endsWith('.')) {
+            fieldConds.push('ABS(so.kg_dzn - ?) < 0.005');
+            queryParams.push(numVal);
+            fieldConds.push('ABS(so.quantity_pcs - ?) < 0.005');
+            queryParams.push(numVal);
+            fieldConds.push('ABS(so.total_kg - ?) < 0.005');
+            queryParams.push(numVal);
+            fieldConds.push('ABS(so.rate_pcs - ?) < 0.005');
+            queryParams.push(numVal);
+            fieldConds.push('ABS(so.rate_kz - ?) < 0.005');
+            queryParams.push(numVal);
+            fieldConds.push('ABS(ROUND(so.quantity_pcs * so.rate_pcs, 2) - ?) < 0.01');
+            queryParams.push(numVal);
+          }
+
+          // 3. Text and formatted string matching
+          const searchFields = [
+            'so.order_number', 'so.customer_id', 'so.item_code', 'so.finish',
+            'so.manufacturer_name', 'so.po_vr', 'so.note', 'so.customer_code',
+            'so.customer_name', 'c.contact_name',
+            "DATE_FORMAT(so.order_date, '%d-%m-%Y')",
+            "DATE_FORMAT(so.order_date, '%d-%m-%y')",
+            "DATE_FORMAT(so.order_date, '%d/%m/%Y')",
+            "DATE_FORMAT(so.order_date, '%d/%m/%y')",
+            "DATE_FORMAT(so.order_date, '%Y-%m-%d')",
+            "DATE_FORMAT(so.order_date, '%d-%m')",
+            "DATE_FORMAT(so.order_date, '%d/%m')",
+            "CAST(so.order_date AS CHAR)",
+            "CAST(so.rate_pcs AS CHAR)",
+            "CAST(so.rate_kz AS CHAR)",
+            "CAST(so.quantity_pcs AS CHAR)",
+            "CAST(so.total_kg AS CHAR)",
+            "CAST(so.qty_ctn AS CHAR)",
+            "CAST(so.total_rs AS CHAR)",
+            "CAST(ROUND(so.quantity_pcs * so.rate_pcs, 2) AS CHAR)",
+            "CAST(ROUND(so.total_kg * so.rate_kz, 2) AS CHAR)",
+            "CAST(so.kg_dzn AS CHAR)",
+            "FORMAT(so.kg_dzn, 3)",
+            "FORMAT(so.kg_dzn, 2)",
+          ];
+
+          searchFields.forEach(field => {
+            fieldConds.push(`${field} LIKE ?`);
             queryParams.push(`%${term}%`);
-            return `${field} LIKE ?`;
-          }).join(' OR ');
-          return `(${fieldConditions})`;
+          });
+
+          return `(${fieldConds.join(' OR ')})`;
         });
 
         whereConditions.push(`(${termConditions.join(' AND ')})`);
