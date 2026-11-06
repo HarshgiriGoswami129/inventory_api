@@ -432,5 +432,26 @@ const salesOrderController = {
       });
     }
   },
+
+  reconcileOrders: async (req, res) => {
+    try {
+      const { fix = false } = req.body || {};
+      const result = await SalesOrder.reconcileOrders(Boolean(fix));
+      res.status(200).json({
+        success: true,
+        message: fix
+          ? `Successfully reconciled and fixed ${result.fixed_count} sales order(s).`
+          : `Audit completed. Found ${result.discrepancy_count} discrepancy(ies).`,
+        data: result
+      });
+    } catch (error) {
+      console.error('Reconciliation controller error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server Error during reconciliation',
+        error: error.message
+      });
+    }
+  },
 };
 module.exports = salesOrderController;
