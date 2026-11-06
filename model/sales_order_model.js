@@ -259,7 +259,10 @@ const SalesOrder = {
 
   // Paginated search with multi-term support
   findAllPaginated: async ({ page = 1, limit = 10, search = '' }) => {
-    const offset = (page - 1) * limit;
+    const isAll = limit === 'all' || Number(limit) >= 100000;
+    const numLimit = isAll ? 1000000 : (parseInt(limit, 10) || 10);
+    const numPage = isAll ? 1 : (parseInt(page, 10) || 1);
+    const offset = (numPage - 1) * numLimit;
 
     let whereConditions = [];
     let queryParams = [];
@@ -289,28 +292,51 @@ const SalesOrder = {
             fieldConds.push(`${dynamicStatusExpr} = 'Partial'`);
           }
 
-          // 2. Numeric matching for kg_dzn and other numeric fields
+          // 2. Numeric matching across all numeric columns
           const numVal = parseFloat(term);
           if (!isNaN(numVal) && !term.endsWith('.')) {
-            fieldConds.push('ABS(so.kg_dzn - ?) < 0.005');
-            queryParams.push(numVal);
-            fieldConds.push('ABS(so.quantity_pcs - ?) < 0.005');
-            queryParams.push(numVal);
-            fieldConds.push('ABS(so.total_kg - ?) < 0.005');
-            queryParams.push(numVal);
-            fieldConds.push('ABS(so.rate_pcs - ?) < 0.005');
-            queryParams.push(numVal);
-            fieldConds.push('ABS(so.rate_kz - ?) < 0.005');
-            queryParams.push(numVal);
+            const numericColumns = [
+              'so.kg_dzn',
+              'so.quantity_pcs',
+              'so.initial_qty',
+              'so.stock_qty',
+              'so.scrap',
+              'so.labour',
+              'so.pcs_box',
+              'so.box_ctn',
+              'so.pcs_ctn',
+              'so.kg_box',
+              'so.qty_ctn',
+              'so.total_kg',
+              'so.rate_pcs',
+              'so.rate_kz',
+              'so.order_number',
+              'so.total_rs',
+            ];
+            numericColumns.forEach(col => {
+              fieldConds.push(`ABS(${col} - ?) < 0.005`);
+              queryParams.push(numVal);
+            });
             fieldConds.push('ABS(ROUND(so.quantity_pcs * so.rate_pcs, 2) - ?) < 0.01');
+            queryParams.push(numVal);
+            fieldConds.push('ABS(ROUND(so.total_kg * so.rate_kz, 2) - ?) < 0.01');
             queryParams.push(numVal);
           }
 
-          // 3. Text and formatted string matching
+          // 3. Text and formatted string matching across all fields
           const searchFields = [
-            'so.order_number', 'so.customer_id', 'so.item_code', 'so.finish',
-            'so.manufacturer_name', 'so.po_vr', 'so.note', 'so.customer_code',
-            'so.customer_name', 'c.contact_name',
+            'so.order_number',
+            'so.customer_id',
+            'so.customer_code',
+            'so.customer_name',
+            'c.contact_name',
+            'c.code',
+            'so.item_code',
+            'so.finish',
+            'so.manufacturer_name',
+            'so.po_vr',
+            'so.note',
+            'so.order_stock',
             "DATE_FORMAT(so.order_date, '%d-%m-%Y')",
             "DATE_FORMAT(so.order_date, '%d-%m-%y')",
             "DATE_FORMAT(so.order_date, '%d/%m/%Y')",
@@ -319,17 +345,28 @@ const SalesOrder = {
             "DATE_FORMAT(so.order_date, '%d-%m')",
             "DATE_FORMAT(so.order_date, '%d/%m')",
             "CAST(so.order_date AS CHAR)",
-            "CAST(so.rate_pcs AS CHAR)",
-            "CAST(so.rate_kz AS CHAR)",
-            "CAST(so.quantity_pcs AS CHAR)",
-            "CAST(so.total_kg AS CHAR)",
-            "CAST(so.qty_ctn AS CHAR)",
-            "CAST(so.total_rs AS CHAR)",
-            "CAST(ROUND(so.quantity_pcs * so.rate_pcs, 2) AS CHAR)",
-            "CAST(ROUND(so.total_kg * so.rate_kz, 2) AS CHAR)",
+            "CAST(so.stock_qty AS CHAR)",
+            "CAST(ROUND(so.stock_qty) AS CHAR)",
+            "CAST(so.initial_qty AS CHAR)",
+            "CAST(so.scrap AS CHAR)",
+            "CAST(ROUND(so.scrap) AS CHAR)",
+            "CAST(so.labour AS CHAR)",
+            "CAST(ROUND(so.labour) AS CHAR)",
             "CAST(so.kg_dzn AS CHAR)",
             "FORMAT(so.kg_dzn, 3)",
             "FORMAT(so.kg_dzn, 2)",
+            "CAST(so.pcs_box AS CHAR)",
+            "CAST(so.box_ctn AS CHAR)",
+            "CAST(so.pcs_ctn AS CHAR)",
+            "CAST(so.kg_box AS CHAR)",
+            "CAST(so.qty_ctn AS CHAR)",
+            "CAST(so.quantity_pcs AS CHAR)",
+            "CAST(so.rate_pcs AS CHAR)",
+            "CAST(so.rate_kz AS CHAR)",
+            "CAST(so.total_kg AS CHAR)",
+            "CAST(so.total_rs AS CHAR)",
+            "CAST(ROUND(so.quantity_pcs * so.rate_pcs, 2) AS CHAR)",
+            "CAST(ROUND(so.total_kg * so.rate_kz, 2) AS CHAR)",
           ];
 
           searchFields.forEach(field => {
@@ -350,7 +387,7 @@ const SalesOrder = {
     const countQuery = `
       SELECT COUNT(*) as total 
       FROM sales_orders so
-      LEFT JOIN contacts c ON so.customer_id = c.id
+      LEFT JOIN contacts c ON (so.customer_code = c.code OR so.customer_id = c.code OR so.customer_id = c.id)
       ${whereClause}
     `;
     const [countResult] = await db.query(countQuery, queryParams);
@@ -358,7 +395,7 @@ const SalesOrder = {
 
     // Data query
     const dataQuery = `
-      SELECT so.*, c.contact_name as customer_name,
+      SELECT so.*, COALESCE(NULLIF(so.customer_name, ''), c.contact_name, so.customer_name) as customer_name,
         CASE
           WHEN so.initial_qty IS NULL THEN 'Uninvoiced'
           WHEN so.quantity_pcs = so.initial_qty THEN 'Uninvoiced'
@@ -367,20 +404,20 @@ const SalesOrder = {
           ELSE 'Uninvoiced'
         END AS invoice_status
       FROM sales_orders so
-      LEFT JOIN contacts c ON so.customer_id = c.id
+      LEFT JOIN contacts c ON (so.customer_code = c.code OR so.customer_id = c.code OR so.customer_id = c.id)
       ${whereClause}
       ORDER BY so.id DESC
       LIMIT ? OFFSET ?
     `;
-    const [rows] = await db.query(dataQuery, [...queryParams, limit, offset]);
+    const [rows] = await db.query(dataQuery, [...queryParams, numLimit, offset]);
 
     return {
       data: rows,
       pagination: {
-        page,
-        limit,
+        page: numPage,
+        limit: isAll ? total : numLimit,
         total,
-        totalPages: Math.ceil(total / limit)
+        totalPages: isAll ? 1 : Math.ceil(total / numLimit)
       }
     };
   },
