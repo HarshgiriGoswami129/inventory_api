@@ -155,9 +155,10 @@ const invoiceController = {
     try {
       const { page = 1, limit = 10, search = '' } = req.body;
 
+      const isAll = limit === 'all' || Number(limit) >= 100000;
       const result = await Invoice.getInvoiceSummaryPaginated({
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: isAll ? 1 : (parseInt(page) || 1),
+        limit: isAll ? 1000000 : (parseInt(limit) || 10),
         search: search || ''
       });
 

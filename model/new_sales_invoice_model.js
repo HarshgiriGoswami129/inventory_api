@@ -1220,7 +1220,10 @@ const Invoice = {
   // Paginated invoice summary with search
   getInvoiceSummaryPaginated: async ({ page = 1, limit = 10, search = '' }) => {
     const currentDate = new Date();
-    const offset = (page - 1) * limit;
+    const isAll = limit === 'all' || Number(limit) >= 100000;
+    const numLimit = isAll ? 1000000 : (parseInt(limit, 10) || 10);
+    const numPage = isAll ? 1 : (parseInt(page, 10) || 1);
+    const offset = (numPage - 1) * numLimit;
 
     let whereConditions = [];
     let queryParams = [];
@@ -1313,7 +1316,7 @@ const Invoice = {
       ORDER BY i.id DESC
       LIMIT ? OFFSET ?
     `;
-    const [rows] = await db.query(dataQuery, [...queryParams, limit, offset]);
+    const [rows] = await db.query(dataQuery, [...queryParams, numLimit, offset]);
 
     const parseNumber = (val) => {
       const num = parseFloat(val);
@@ -1360,10 +1363,10 @@ const Invoice = {
     return {
       data,
       pagination: {
-        page,
-        limit,
+        page: numPage,
+        limit: isAll ? total : numLimit,
         total,
-        totalPages: Math.ceil(total / limit)
+        totalPages: isAll ? 1 : Math.ceil(total / numLimit)
       }
     };
   },
