@@ -56,6 +56,7 @@ const boxRoutes = require('./route/box_route');
 const shrinkRoutes = require('./route/shrink_route');
 const ldRoutes = require('./route/ld_route');
 const undoActionRoutes = require('./route/undo_action_route');
+const jobWorkRoutes = require('./route/job_work_route');
 
 const PORT = process.env.PORT || 3000;
 
@@ -95,6 +96,7 @@ app.use('/database', databaseRoutes);
 app.use('/sales-lock', salesLockRoutes);
 app.use('/system-settings', systemSettingsRoutes);
 app.use('/undo-actions', undoActionRoutes);
+app.use('/job-work', jobWorkRoutes);
 
 // Global error handling middleware (catches unhandled errors and returns direct database/backend error)
 app.use((err, req, res, next) => {
