@@ -50,6 +50,12 @@ const Invoice = {
     try {
       await db.query('ALTER TABLE invoice_items ADD COLUMN ld_name VARCHAR(255) NULL');
     } catch (e) {}
+    try {
+      await db.query('ALTER TABLE invoices MODIFY COLUMN tr_number VARCHAR(255) NULL');
+    } catch (e) {}
+    try {
+      await db.query('ALTER TABLE invoices MODIFY COLUMN lr_number VARCHAR(255) NULL');
+    } catch (e) {}
   },
 
   create: async (invoiceData) => {
@@ -86,8 +92,8 @@ const Invoice = {
         invoiceData.other_charge || null,
         toDec(invoiceData.other_charge_amount) || 0,
         toDec(invoiceData.grand_total) || 0,
-        invoiceData.tr_number || null,
-        invoiceData.lr_number || null,
+        invoiceData.tr_number ? String(invoiceData.tr_number).substring(0, 255) : null,
+        invoiceData.lr_number ? String(invoiceData.lr_number).substring(0, 255) : null,
         toDec(invoiceData.grand_total) || 0 // Set remaining_amount = grand_total
       ];
       const invoiceQuery = `INSERT INTO invoices (${invoiceFields.join(', ')}) VALUES (?)`;
@@ -852,6 +858,12 @@ const Invoice = {
               updateData[field] = isNaN(num) ? null : num;
             }
           }
+        }
+        if (updateData.tr_number !== undefined && updateData.tr_number !== null) {
+          updateData.tr_number = String(updateData.tr_number).substring(0, 255);
+        }
+        if (updateData.lr_number !== undefined && updateData.lr_number !== null) {
+          updateData.lr_number = String(updateData.lr_number).substring(0, 255);
         }
         const setClause = Object.keys(updateData).map(key => `${key} = ?`).join(', ');
         const values = [...Object.values(updateData), id];

@@ -50,7 +50,15 @@ const SalesOrder = {
         END AS invoice_status
       FROM sales_orders so
       LEFT JOIN contacts c ON so.customer_id = c.id
-      ORDER BY so.id DESC
+      ORDER BY 
+        CASE
+          WHEN so.initial_qty IS NULL THEN 1
+          WHEN so.quantity_pcs = so.initial_qty THEN 1
+          WHEN so.quantity_pcs > 0 AND so.quantity_pcs < so.initial_qty THEN 2
+          WHEN so.quantity_pcs = 0 THEN 3
+          ELSE 1
+        END ASC,
+        so.id DESC
     `;
     const [rows] = await db.query(query);
     return rows;
@@ -406,7 +414,15 @@ const SalesOrder = {
       FROM sales_orders so
       LEFT JOIN contacts c ON (so.customer_code = c.code OR so.customer_id = c.code OR so.customer_id = c.id)
       ${whereClause}
-      ORDER BY so.id DESC
+      ORDER BY 
+        CASE
+          WHEN so.initial_qty IS NULL THEN 1
+          WHEN so.quantity_pcs = so.initial_qty THEN 1
+          WHEN so.quantity_pcs > 0 AND so.quantity_pcs < so.initial_qty THEN 2
+          WHEN so.quantity_pcs = 0 THEN 3
+          ELSE 1
+        END ASC,
+        so.id DESC
       LIMIT ? OFFSET ?
     `;
     const [rows] = await db.query(dataQuery, [...queryParams, numLimit, offset]);
