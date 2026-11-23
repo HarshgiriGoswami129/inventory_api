@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { recalculateSupplierKGBalances } = require('../utils/supplier_balance_helper');
 
 const sanitizeDate = (val) => {
   if (val === undefined || val === null || val === '') return null;
@@ -19,7 +20,8 @@ const validCustomerDetailColumns = new Set([
 
 const validSupplierDetailColumns = new Set([
   'credit_limit', 'division', 'due_date', 'payment_status', 'note', 'total_amount',
-  'notes', 'payment', 'date', 'order_follow_up', 'note_date', 'category_type', 'no_1', 'no_2', 'opening_no_1', 'opening_no_2', 'opening_balance'
+  'notes', 'payment', 'date', 'order_follow_up', 'note_date', 'category_type', 'no_1', 'no_2', 'opening_no_1', 'opening_no_2', 'opening_balance',
+  'material_type', 'opening_net_kg', 'total_net_kg'
 ]);
 
 const Contact = {
@@ -72,24 +74,29 @@ const Contact = {
           credit_limit, division, due_date, payment_status, note, total_amount,
           // ADD these new fields
           notes, payment, date, order_follow_up, note_date,
-          no_1, no_2
+          no_1, no_2,
+          material_type, opening_net_kg
         } = baseData.details || {};
 
         // Update the INSERT query
         const opNo1 = baseData.details?.opening_no_1 !== undefined && baseData.details?.opening_no_1 !== "" ? (parseFloat(baseData.details.opening_no_1) || 0) : (parseFloat(no_1) || 0);
         const opNo2 = baseData.details?.opening_no_2 !== undefined && baseData.details?.opening_no_2 !== "" ? (parseFloat(baseData.details.opening_no_2) || 0) : (parseFloat(no_2) || 0);
         const opBal = baseData.details?.opening_balance !== undefined && baseData.details?.opening_balance !== "" ? (parseFloat(baseData.details.opening_balance) || 0) : (total_amount !== undefined && total_amount !== "" ? (parseFloat(total_amount) || 0) : (opNo1 + opNo2));
+        const opNetKg = parseFloat(opening_net_kg || baseData.details?.opening_net_kg || 0) || 0;
+        const matType = material_type || baseData.details?.material_type || null;
 
         const supplierQuery = `INSERT INTO supplier_details 
         (contact_id, credit_limit, division, due_date, payment_status, note, total_amount,
-         notes, payment, date, order_follow_up, note_date, no_1, no_2, opening_no_1, opening_no_2, opening_balance) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+         notes, payment, date, order_follow_up, note_date, no_1, no_2, opening_no_1, opening_no_2, opening_balance,
+         material_type, opening_net_kg, total_net_kg) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         // Add the new values to the array
         await connection.query(supplierQuery, [
           contactId, credit_limit, division, sanitizeDate(due_date), payment_status, note, total_amount !== undefined && total_amount !== "" ? total_amount : opBal,
           notes, payment, sanitizeDate(date), order_follow_up, sanitizeDate(note_date), no_1 !== undefined && no_1 !== "" ? no_1 : opNo1, no_2 !== undefined && no_2 !== "" ? no_2 : opNo2,
-          opNo1, opNo2, opBal
+          opNo1, opNo2, opBal,
+          matType, opNetKg, opNetKg
         ]);
       }
 
@@ -134,6 +141,7 @@ const Contact = {
               ELSE COALESCE(sd.no_2, cd.no_2, 0)
             END AS no_2,
             sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
+            sd.material_type, sd.opening_net_kg, sd.total_net_kg,
             COALESCE(
                 (
                     SELECT DATEDIFF(CURDATE(), i.invoice_date)
@@ -184,6 +192,7 @@ const Contact = {
               ELSE COALESCE(sd.no_2, cd.no_2, 0)
             END AS no_2,
             sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
+            sd.material_type, sd.opening_net_kg, sd.total_net_kg,
             COALESCE(
                 (
                     SELECT DATEDIFF(CURDATE(), i.invoice_date)
@@ -314,6 +323,15 @@ const Contact = {
         supplierValues.push(id); // contact_id
         const updateSupplierQuery = `UPDATE supplier_details SET ${supplierFields.join(', ')} WHERE contact_id = ?`;
         await connection.query(updateSupplierQuery, supplierValues);
+
+        // If material_type or opening_net_kg was modified, recalculate FIFO Net KG
+        if (details.material_type !== undefined || details.opening_net_kg !== undefined) {
+          try {
+            await recalculateSupplierKGBalances(id, connection);
+          } catch (kgErr) {
+            console.warn('Error recalculating supplier KG balance on update:', kgErr);
+          }
+        }
       }
 
       await connection.commit();
@@ -345,7 +363,8 @@ const Contact = {
                 COALESCE((SELECT SUM(i.reference_no_2) FROM invoices i WHERE i.customer_id = c.code AND i.remaining_amount > 0), 0)
               ELSE COALESCE(sd.no_2, cd.no_2, 0)
             END AS no_2,
-     sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date
+     sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
+     sd.material_type, sd.opening_net_kg, sd.total_net_kg
      FROM contacts c
      LEFT JOIN customer_details cd ON c.id = cd.contact_id
      LEFT JOIN supplier_details sd ON c.id = sd.contact_id
@@ -564,6 +583,7 @@ const Contact = {
               ELSE COALESCE(sd.no_2, cd.no_2, 0)
             END AS no_2,
         sd.credit_limit, sd.division, sd.due_date, sd.payment_status, sd.note, sd.note_date,
+     sd.material_type, sd.opening_net_kg, sd.total_net_kg,
         COALESCE(
           (
             SELECT DATEDIFF(CURDATE(), i.invoice_date)

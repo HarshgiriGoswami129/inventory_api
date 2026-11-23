@@ -1,5 +1,5 @@
 const db = require('../config/db');
-const { recalculateSupplierPIBalances } = require('../utils/supplier_balance_helper');
+const { recalculateSupplierPIBalances, recalculateSupplierKGBalances } = require('../utils/supplier_balance_helper');
 
 const PurchaseInvoice = {
   createWithStockUpdate: async (invoiceData, lineItems, userCode, invoiceTotal) => {
@@ -10,12 +10,34 @@ const PurchaseInvoice = {
       // Allowed fields for purchase_invoices table
       const allowedInvoiceFields = [
         'code_user', 'user', 'invoice_number', 'issue_date', 'due_date',
-        'total_amount', 'balance_due', 'image_url'
+        'total_amount', 'balance_due', 'image_url',
+        'total_net_kg', 'balance_net_kg', 'material_type'
       ];
       const sanitizedInvoice = {};
       for (const field of allowedInvoiceFields) {
         if (invoiceData[field] !== undefined) {
           sanitizedInvoice[field] = invoiceData[field];
+        }
+      }
+
+      // Calculate total net kg from line items
+      const calcNetKg = (lineItems || []).reduce((sum, itm) => sum + (parseFloat(itm.net_kg) || 0), 0);
+      sanitizedInvoice.total_net_kg = calcNetKg;
+      sanitizedInvoice.balance_net_kg = calcNetKg;
+
+      // Look up supplier material_type
+      const lookupSupplierCode = userCode || invoiceData.supplier_code || sanitizedInvoice.code_user || '';
+      if (lookupSupplierCode) {
+        try {
+          const [matRows] = await connection.query(
+            `SELECT sd.material_type FROM contacts c JOIN supplier_details sd ON sd.contact_id = c.id WHERE c.code = ? OR c.contact_name = ? LIMIT 1`,
+            [lookupSupplierCode, lookupSupplierCode]
+          );
+          if (matRows.length > 0 && matRows[0].material_type) {
+            sanitizedInvoice.material_type = matRows[0].material_type;
+          }
+        } catch (mErr) {
+          console.warn('Could not fetch supplier material_type for PI:', mErr.message);
         }
       }
 
@@ -256,6 +278,7 @@ const PurchaseInvoice = {
 
             // Centralized FIFO recalculation: reduces balance_due by any advance credits & syncs total
             await recalculateSupplierPIBalances(contactId, connection);
+            await recalculateSupplierKGBalances(contactId, connection);
           }
         } catch (supplierErr) {
           console.error('Supplier PI balance calculation error on create:', supplierErr.message);
@@ -413,9 +436,10 @@ const PurchaseInvoice = {
         const amountPaid = Math.max(0, oldTotal - oldBalance);
         const newBalance = Math.max(0, newTotal - amountPaid);
 
+        const calcUpdateNetKg = (lineItems || []).reduce((sum, itm) => sum + (parseFloat(itm.net_kg) || 0), 0);
         await connection.query(
-          'UPDATE purchase_invoices SET total_amount = ? WHERE id = ?',
-          [newTotal, invoiceId]
+          'UPDATE purchase_invoices SET total_amount = ?, total_net_kg = ? WHERE id = ?',
+          [newTotal, calcUpdateNetKg, invoiceId]
         );
 
         // Recalculate supplier balances and FIFO allocation across all PIs
@@ -424,6 +448,7 @@ const PurchaseInvoice = {
         if (supplierCodeVal) {
           try {
             await recalculateSupplierPIBalances(supplierCodeVal, connection);
+            await recalculateSupplierKGBalances(supplierCodeVal, connection);
           } catch (supplierErr) {
             console.error('Supplier total update error on PI update:', supplierErr.message);
           }
@@ -492,7 +517,9 @@ const PurchaseInvoice = {
             pattern, // CAST pii.net_kg
             pattern, // CAST pii.total_psc
             pattern, // pii.peti_Type
-            pattern  // status
+            pattern, // status
+            pattern, // pi.material_type
+            pattern  // sd.material_type
           );
           return `(
             pi.invoice_number LIKE ?
@@ -531,6 +558,8 @@ const PurchaseInvoice = {
                 ELSE 'Pending'
               END
             ) LIKE ?
+            OR pi.material_type LIKE ?
+            OR sd.material_type LIKE ?
           )`;
         });
 
@@ -544,6 +573,7 @@ const PurchaseInvoice = {
       SELECT COUNT(DISTINCT pi.id) as total
       FROM purchase_invoices pi
       LEFT JOIN contacts c ON (c.code = pi.code_user OR c.code = pi.user OR c.code = SUBSTRING_INDEX(pi.code_user, '_', 1))
+      LEFT JOIN supplier_details sd ON sd.contact_id = c.id
       ${whereClause}
     `;
     const [countResult] = await db.query(countQuery, queryParams);
@@ -552,6 +582,7 @@ const PurchaseInvoice = {
     const dataQuery = `
       SELECT pi.*,
         c.contact_name AS supplier_contact_name,
+        COALESCE(NULLIF(pi.material_type, ''), sd.material_type) AS material_type,
         CASE
           WHEN pi.balance_due = 0 AND pi.total_amount > 0 THEN 'Paid'
           WHEN pi.balance_due > 0 AND pi.balance_due < pi.total_amount THEN 'Partial'
@@ -559,6 +590,7 @@ const PurchaseInvoice = {
         END AS status
       FROM purchase_invoices pi
       LEFT JOIN contacts c ON (c.code = pi.code_user OR c.code = pi.user OR c.code = SUBSTRING_INDEX(pi.code_user, '_', 1))
+      LEFT JOIN supplier_details sd ON sd.contact_id = c.id
       ${whereClause}
       ORDER BY pi.issue_date DESC, pi.id DESC
       LIMIT ? OFFSET ?
@@ -781,6 +813,7 @@ const PurchaseInvoice = {
       if (supplierCodeVal) {
         try {
           await recalculateSupplierPIBalances(supplierCodeVal, connection);
+          await recalculateSupplierKGBalances(supplierCodeVal, connection);
         } catch (supErr) {
           console.error('Supplier balance recalculation on undo error:', supErr.message);
         }
@@ -815,6 +848,7 @@ const PurchaseInvoice = {
     if (supplierCode) {
       try {
         await recalculateSupplierPIBalances(supplierCode);
+        await recalculateSupplierKGBalances(supplierCode);
       } catch (err) {
         console.error('Recalculate balance on deleteInvoice error:', err.message);
       }
