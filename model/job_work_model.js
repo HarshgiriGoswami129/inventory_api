@@ -4,7 +4,7 @@ const calculateJobWorkFields = (data) => {
   const avakKg = parseFloat(data.avak_kg) || 0;
   const noOfPeti = parseInt(data.no_of_peti) || 0;
   const petiWt = parseFloat(data.peti_wt) || 0;
-  const netKg = Math.round((avakKg - (noOfPeti * petiWt)) * 1000) / 1000;
+  const netKg = Math.round((avakKg - petiWt) * 1000) / 1000;
   
   const ratePerKg = parseFloat(data.rate_per_kg) || 0;
   const totalRs = Math.round(netKg * ratePerKg * 100) / 100;
