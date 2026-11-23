@@ -151,6 +151,23 @@ const jobWorkController = {
       console.error('Error in batchDeleteJobWork:', error);
       res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }
+  },
+
+  getJWQty: async (req, res) => {
+    try {
+      const { item_code, finish } = req.body;
+      if (!item_code || !finish) {
+        return res.status(200).json({ success: true, data: { jw_qty: 0 } });
+      }
+      const jwQty = await JobWork.getJWQty(item_code, finish);
+      res.status(200).json({
+        success: true,
+        data: { jw_qty: jwQty }
+      });
+    } catch (error) {
+      console.error('Error in getJWQty:', error);
+      res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    }
   }
 };
 

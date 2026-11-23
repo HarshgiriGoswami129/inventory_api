@@ -29,6 +29,7 @@ router.post(
 router.post('/getSuppliersCodeName', salesOrderController.getSuppliersCodeAndName);
 
 router.post('/getStockByItemCode', checkPermission(permission), salesOrderController.getStockByItemCode);
+router.post('/getJWQty', checkPermission(permission), salesOrderController.getJWQty);
 router.post('/reconcile', checkPermission(permission), salesOrderController.reconcileOrders);
 
 

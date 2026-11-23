@@ -16,5 +16,6 @@ router.post('/updateJobWork', checkPermission(permission), jobWorkController.upd
 router.post('/deleteJobWork', checkPermission(permission), jobWorkController.deleteJobWork);
 router.post('/batchUpdateJobWork', checkPermission(permission), jobWorkController.batchUpdateJobWork);
 router.post('/batchDeleteJobWork', checkPermission(permission), jobWorkController.batchDeleteJobWork);
+router.post('/getJWQty', checkPermission([...permission, 'sales_orders']), jobWorkController.getJWQty);
 
 module.exports = router;

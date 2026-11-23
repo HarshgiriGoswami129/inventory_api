@@ -165,6 +165,16 @@ const JobWork = {
     const placeholders = ids.map(() => '?').join(',');
     const [result] = await db.query(`DELETE FROM job_work WHERE id IN (${placeholders})`, ids);
     return result.affectedRows;
+  },
+
+  getJWQty: async (itemCode, finish) => {
+    const query = `
+      SELECT ROUND(COALESCE(SUM(COALESCE(return_kg, 0) - COALESCE(ghati, 0)), 0), 3) AS jw_qty
+      FROM job_work
+      WHERE item_code = ? AND finish = ? AND return_kg IS NOT NULL
+    `;
+    const [rows] = await db.query(query, [itemCode, finish]);
+    return rows[0] ? parseFloat(rows[0].jw_qty) || 0 : 0;
   }
 };
 

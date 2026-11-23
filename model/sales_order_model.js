@@ -24,7 +24,7 @@ const SalesOrder = {
 
     const fields = [
       'order_number', 'order_date', 'customer_id', 'item_code', 'finish',
-      'stock_qty', 'initial_qty', 'scrap', 'labour', 'kg_dzn', 'pcs_box', 'box_ctn',
+      'stock_qty', 'jw_qty', 'initial_qty', 'scrap', 'labour', 'kg_dzn', 'pcs_box', 'box_ctn',
       'pcs_ctn', 'kg_box', 'qty_ctn', 'total_kg', 'quantity_pcs',
       'order_stock', 'manufacturer_name', 'po_vr', 'note', 'invoice_status',
       'created_by', 'customer_code', 'customer_name', 'rate_pcs', 'rate_kz',
@@ -265,6 +265,16 @@ const SalesOrder = {
     return rows[0];
   },
 
+  findJWQtyByItemCodeAndFinish: async (itemCode, finish) => {
+    const query = `
+      SELECT ROUND(COALESCE(SUM(COALESCE(return_kg, 0) - COALESCE(ghati, 0)), 0), 3) AS jw_qty
+      FROM job_work
+      WHERE item_code = ? AND finish = ? AND return_kg IS NOT NULL
+    `;
+    const [rows] = await db.query(query, [itemCode, finish]);
+    return rows[0] ? parseFloat(rows[0].jw_qty) || 0 : 0;
+  },
+
   // Paginated search with multi-term support
   findAllPaginated: async ({ page = 1, limit = 10, search = '' }) => {
     const isAll = limit === 'all' || Number(limit) >= 100000;
@@ -308,6 +318,7 @@ const SalesOrder = {
               'so.quantity_pcs',
               'so.initial_qty',
               'so.stock_qty',
+              'so.jw_qty',
               'so.scrap',
               'so.labour',
               'so.pcs_box',
@@ -355,6 +366,8 @@ const SalesOrder = {
             "CAST(so.order_date AS CHAR)",
             "CAST(so.stock_qty AS CHAR)",
             "CAST(ROUND(so.stock_qty) AS CHAR)",
+            "CAST(so.jw_qty AS CHAR)",
+            "FORMAT(so.jw_qty, 3)",
             "CAST(so.initial_qty AS CHAR)",
             "CAST(so.scrap AS CHAR)",
             "CAST(ROUND(so.scrap) AS CHAR)",
