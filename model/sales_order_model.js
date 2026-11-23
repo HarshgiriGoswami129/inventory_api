@@ -267,7 +267,7 @@ const SalesOrder = {
 
   findJWQtyByItemCodeAndFinish: async (itemCode, finish) => {
     const query = `
-      SELECT ROUND(COALESCE(SUM(COALESCE(return_kg, 0) - COALESCE(ghati, 0)), 0), 3) AS jw_qty
+      SELECT ROUND(COALESCE(SUM(COALESCE(return_kg, 0) - COALESCE(peti_wt, 0)), 0), 3) AS jw_qty
       FROM job_work
       WHERE item_code = ? AND finish = ? AND return_kg IS NOT NULL
     `;
