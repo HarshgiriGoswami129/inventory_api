@@ -858,7 +858,7 @@ const PurchaseInvoice = {
 
   getDetailsByCodeUser: async (codeUser) => {
     const query = `
-      SELECT scrap, labour, kg_dzn, total_kg, description, rate_pcs, box_name, shrink_name, ld_name 
+      SELECT scrap, labour, kg_dzn, total_kg, description, rate_pcs, box_name, shrink_name, ld_name, pic_or_kg 
       FROM inventory_items 
       WHERE code_user = ? 
          OR code_user LIKE CONCAT(?, '_%') 
