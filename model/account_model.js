@@ -9,7 +9,7 @@ const Account = {
   },
 
   findAll: async () => {
-    const [rows] = await db.query('SELECT * FROM accounts');
+    const [rows] = await db.query('SELECT * FROM accounts ORDER BY account_name ASC, id ASC');
     return rows;
   },
 

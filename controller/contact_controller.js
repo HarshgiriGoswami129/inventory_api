@@ -55,13 +55,15 @@ const contactController = {
   // Paginated getAllContacts with multi-term search and type filter
   getAllContacts: async (req, res) => {
     try {
-      const { page = 1, limit = 10000, search = '', type = '' } = req.body;
+      const { page = 1, limit = 10000, search = '', type = '', sortBy = 'c.contact_name', sortOrder = 'ASC' } = req.body;
 
       const result = await Contact.findAllPaginated({
         page: parseInt(page),
         limit: parseInt(limit),
         search: search || '',
-        type: type || ''
+        type: type || '',
+        sortBy,
+        sortOrder
       });
 
       res.status(200).json({

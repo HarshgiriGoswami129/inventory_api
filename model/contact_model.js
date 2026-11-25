@@ -223,6 +223,7 @@ const Contact = {
         FROM contacts c
         LEFT JOIN customer_details cd ON c.id = cd.contact_id
         LEFT JOIN supplier_details sd ON c.id = sd.contact_id
+        ORDER BY c.contact_name ASC, c.id ASC
     `;
     const [rows] = await db.query(query);
     return rows;
@@ -499,7 +500,7 @@ const Contact = {
   },
 
   // Paginated search with multi-term support and type filter
-  findAllPaginated: async ({ page = 1, limit = 10000, search = '', type = '' }) => {
+  findAllPaginated: async ({ page = 1, limit = 10000, search = '', type = '', sortBy = 'c.contact_name', sortOrder = 'ASC' }) => {
     const offset = (page - 1) * limit;
 
     let whereConditions = [];
@@ -615,7 +616,7 @@ const Contact = {
       LEFT JOIN customer_details cd ON c.id = cd.contact_id
       LEFT JOIN supplier_details sd ON c.id = sd.contact_id
       ${whereClause}
-      ORDER BY c.id DESC
+      ORDER BY c.contact_name ASC, c.id ASC
       LIMIT ? OFFSET ?
     `;
 

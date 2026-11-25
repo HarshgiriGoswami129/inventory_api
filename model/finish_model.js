@@ -8,7 +8,7 @@ const Finishes = {
   },
 
   getAll: async () => {
-    const query = 'SELECT * FROM finishes_table ORDER BY id ASC';
+    const query = 'SELECT * FROM finishes_table ORDER BY finish ASC, id ASC';
     const [rows] = await db.query(query);
     return rows;
   },
