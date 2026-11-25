@@ -212,6 +212,43 @@ const receiptController = {
       console.error('Error in createDirectSupplierTransfer:', error);
       res.status(500).json({ success: false, message: error.message || 'Server Error' });
     }
+  },
+
+  updateDirectSupplierTransfer: async (req, res) => {
+    try {
+      const isLocked = await SalesLock.isLocked('receipts');
+      if (isLocked) {
+        return res.status(403).json({
+          success: false,
+          message: 'Receipts are currently locked. Cannot process transfer.'
+        });
+      }
+
+      const { id } = req.params;
+      const user_id = req.user.id;
+      const transferData = {
+        ...req.body,
+        user_id
+      };
+
+      const result = await Receipt.updateDirectSupplierTransfer(id, transferData);
+
+      await logUserActivity(req, {
+        model_name: 'receipts',
+        action_type: 'UPDATE',
+        record_id: id,
+        description: `Updated direct transfer of ₹ ${result.amount} from Customer (${result.customer_name}) to Supplier (${result.supplier_name})`
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Direct supplier transfer updated successfully.',
+        data: result
+      });
+    } catch (error) {
+      console.error('Error in updateDirectSupplierTransfer:', error);
+      res.status(500).json({ success: false, message: error.message || 'Server Error' });
+    }
   }
 
 };

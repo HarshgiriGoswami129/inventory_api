@@ -406,9 +406,21 @@ const SalesOrder = {
 
     // Count query
     const countQuery = `
-      SELECT COUNT(*) as total 
+      SELECT COUNT(DISTINCT so.id) as total 
       FROM sales_orders so
-      LEFT JOIN contacts c ON (so.customer_code = c.code OR so.customer_id = c.code OR so.customer_id = c.id)
+      LEFT JOIN contacts c ON c.id = (
+        SELECT c2.id FROM contacts c2
+        WHERE (NULLIF(so.customer_code, '') IS NOT NULL AND c2.code = so.customer_code)
+           OR (c2.code = so.customer_id)
+           OR (so.customer_id REGEXP '^[0-9]+$' AND c2.id = CAST(so.customer_id AS UNSIGNED))
+        ORDER BY 
+          CASE 
+            WHEN NULLIF(so.customer_code, '') IS NOT NULL AND c2.code = so.customer_code THEN 1
+            WHEN c2.code = so.customer_id THEN 2
+            ELSE 3
+          END ASC
+        LIMIT 1
+      )
       ${whereClause}
     `;
     const [countResult] = await db.query(countQuery, queryParams);
@@ -425,7 +437,19 @@ const SalesOrder = {
           ELSE 'Uninvoiced'
         END AS invoice_status
       FROM sales_orders so
-      LEFT JOIN contacts c ON (so.customer_code = c.code OR so.customer_id = c.code OR so.customer_id = c.id)
+      LEFT JOIN contacts c ON c.id = (
+        SELECT c2.id FROM contacts c2
+        WHERE (NULLIF(so.customer_code, '') IS NOT NULL AND c2.code = so.customer_code)
+           OR (c2.code = so.customer_id)
+           OR (so.customer_id REGEXP '^[0-9]+$' AND c2.id = CAST(so.customer_id AS UNSIGNED))
+        ORDER BY 
+          CASE 
+            WHEN NULLIF(so.customer_code, '') IS NOT NULL AND c2.code = so.customer_code THEN 1
+            WHEN c2.code = so.customer_id THEN 2
+            ELSE 3
+          END ASC
+        LIMIT 1
+      )
       ${whereClause}
       ORDER BY 
         CASE

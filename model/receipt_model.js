@@ -395,7 +395,36 @@ const Receipt = {
     const total = countResult[0].total;
 
     const dataQuery = `
-      SELECT r.*, c.contact_name, c.code as contact_code, a.account_name
+      SELECT r.*, c.contact_name, c.code as contact_code, a.account_name,
+        CASE WHEN r.account_id IS NULL THEN 1 ELSE 0 END as is_direct_supplier,
+        (
+          SELECT p.contact_id 
+          FROM payments p 
+          WHERE p.account_id IS NULL 
+            AND p.amount = r.amount 
+            AND (
+              (p.reference IS NOT NULL AND r.reference IS NOT NULL AND p.reference = r.reference)
+              OR ABS(TIMESTAMPDIFF(SECOND, p.created_at, r.created_at)) <= 120
+              OR DATE(p.date) = DATE(r.date)
+            )
+          ORDER BY p.id DESC LIMIT 1
+        ) as transfer_supplier_id,
+        (
+          SELECT sup.contact_name 
+          FROM contacts sup 
+          WHERE sup.id = (
+            SELECT p.contact_id 
+            FROM payments p 
+            WHERE p.account_id IS NULL 
+              AND p.amount = r.amount 
+              AND (
+                (p.reference IS NOT NULL AND r.reference IS NOT NULL AND p.reference = r.reference)
+                OR ABS(TIMESTAMPDIFF(SECOND, p.created_at, r.created_at)) <= 120
+                OR DATE(p.date) = DATE(r.date)
+              )
+            ORDER BY p.id DESC LIMIT 1
+          )
+        ) as transfer_supplier_name
       FROM receipts r
       LEFT JOIN contacts c ON r.contact_id = c.id
       LEFT JOIN accounts a ON r.account_id = a.id
@@ -540,6 +569,188 @@ const Receipt = {
         receipt_id: receiptResult.insertId,
         payment_id: paymentResult.insertId,
         amount: transferAmount,
+        customer_id,
+        customer_name: customerName,
+        supplier_id,
+        supplier_name: supplierName,
+        date: txnDate,
+        reference: txnRef,
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+
+  updateDirectSupplierTransfer: async (id, transferData) => {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const {
+        date,
+        amount,
+        customer_id,
+        supplier_id,
+        account_type,
+        reference,
+        description,
+        note,
+        user_id,
+      } = transferData;
+
+      const newTransferAmount = parseFloat(amount) || 0;
+      if (!newTransferAmount || newTransferAmount <= 0) {
+        throw new Error("Amount must be greater than zero");
+      }
+      if (!customer_id) {
+        throw new Error("Customer is required");
+      }
+      if (!supplier_id) {
+        throw new Error("Supplier is required");
+      }
+
+      // Step 1: Fetch existing receipt
+      const [existingReceiptRows] = await connection.query(
+        "SELECT * FROM receipts WHERE id = ? LIMIT 1 FOR UPDATE",
+        [id]
+      );
+      if (existingReceiptRows.length === 0) {
+        throw new Error("Receipt not found");
+      }
+      const existingReceipt = existingReceiptRows[0];
+      const oldAmount = parseFloat(existingReceipt.amount) || 0;
+      const oldCustomerId = existingReceipt.contact_id;
+
+      // Step 2: Find paired payment for this transfer
+      const [existingPaymentRows] = await connection.query(
+        `SELECT * FROM payments 
+         WHERE account_id IS NULL 
+           AND (
+             (reference IS NOT NULL AND ? IS NOT NULL AND reference = ?)
+             OR ABS(TIMESTAMPDIFF(SECOND, created_at, ?)) <= 120
+             OR (amount = ? AND DATE(date) = DATE(?))
+           )
+         ORDER BY id DESC LIMIT 1 FOR UPDATE`,
+        [existingReceipt.reference, existingReceipt.reference, existingReceipt.created_at, oldAmount, existingReceipt.date]
+      );
+      const existingPayment = existingPaymentRows.length > 0 ? existingPaymentRows[0] : null;
+      const oldSupplierId = existingPayment ? existingPayment.contact_id : null;
+
+      // Step 3: Reverse previous customer & supplier balance adjustments
+      if (oldCustomerId) {
+        await connection.query(
+          `UPDATE customer_details 
+           SET total_amount = COALESCE(total_amount, 0) + ? 
+           WHERE contact_id = ?`,
+          [oldAmount, oldCustomerId]
+        );
+      }
+
+      if (oldSupplierId) {
+        await connection.query(
+          `UPDATE supplier_details 
+           SET total_amount = COALESCE(total_amount, 0) + ? 
+           WHERE contact_id = ?`,
+          [oldAmount, oldSupplierId]
+        );
+      }
+
+      // Step 4: Fetch new customer & supplier info
+      const [customerRows] = await connection.query(
+        "SELECT id, contact_name, code FROM contacts WHERE id = ?",
+        [customer_id]
+      );
+      const [supplierRows] = await connection.query(
+        "SELECT id, contact_name, code FROM contacts WHERE id = ?",
+        [supplier_id]
+      );
+
+      const customerName =
+        customerRows[0]?.contact_name || `Customer #${customer_id}`;
+      const supplierName =
+        supplierRows[0]?.contact_name || `Supplier #${supplier_id}`;
+
+      const receiptDesc =
+        description && description.trim()
+          ? description.trim()
+          : `Direct Transfer to Supplier: ${supplierName}`;
+      const paymentDesc = `Direct Payment from Customer: ${customerName}`;
+      const txnRef = reference && reference.trim() ? reference.trim() : null;
+      const txnNote = note && note.trim() ? note.trim() : null;
+      const txnDate =
+        date && date.trim()
+          ? date.trim()
+          : new Date().toISOString().split("T")[0];
+
+      // Step 5: Update receipt
+      await connection.query(
+        `UPDATE receipts 
+         SET date = ?, amount = ?, contact_id = ?, description = ?, reference = ?, note = ?, user_id = COALESCE(?, user_id)
+         WHERE id = ?`,
+        [txnDate, newTransferAmount, customer_id, receiptDesc, txnRef, txnNote, user_id, id]
+      );
+
+      // Step 6: Update paired payment (or insert if not found)
+      let paymentId = existingPayment?.id;
+      if (existingPayment) {
+        await connection.query(
+          `UPDATE payments 
+           SET date = ?, amount = ?, contact_id = ?, description = ?, reference = ?, note = ?, user_id = COALESCE(?, user_id)
+           WHERE id = ?`,
+          [txnDate, newTransferAmount, supplier_id, paymentDesc, txnRef, txnNote, user_id, existingPayment.id]
+        );
+      } else {
+        const [newPaymentResult] = await connection.query(
+          `INSERT INTO payments (date, amount, contact_id, account_id, description, reference, note, user_id)
+           VALUES (?, ?, ?, NULL, ?, ?, ?, ?)`,
+          [txnDate, newTransferAmount, supplier_id, paymentDesc, txnRef, txnNote, user_id || null]
+        );
+        paymentId = newPaymentResult.insertId;
+      }
+
+      // Step 7: Apply new customer deduction
+      await connection.query(
+        `UPDATE customer_details 
+         SET total_amount = COALESCE(total_amount, 0) - ? 
+         WHERE contact_id = ?`,
+        [newTransferAmount, customer_id]
+      );
+
+      if (account_type === "NO_1") {
+        await connection.query(
+          `UPDATE customer_details 
+           SET no_1 = COALESCE(no_1, 0) - ? 
+           WHERE contact_id = ?`,
+          [newTransferAmount, customer_id]
+        );
+      } else if (account_type === "NO_2") {
+        await connection.query(
+          `UPDATE customer_details 
+           SET no_2 = COALESCE(no_2, 0) - ? 
+           WHERE contact_id = ?`,
+          [newTransferAmount, customer_id]
+        );
+      }
+
+      // Step 8: Recalculate supplier balances
+      try {
+        await recalculateSupplierPIBalances(supplier_id, connection);
+        if (oldSupplierId && oldSupplierId !== supplier_id) {
+          await recalculateSupplierPIBalances(oldSupplierId, connection);
+        }
+      } catch (tErr) {
+        console.error('Error recalculating supplier balance on transfer update:', tErr.message);
+      }
+
+      await connection.commit();
+      return {
+        success: true,
+        receipt_id: id,
+        payment_id: paymentId,
+        amount: newTransferAmount,
         customer_id,
         customer_name: customerName,
         supplier_id,
